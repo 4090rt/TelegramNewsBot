@@ -1,65 +1,227 @@
 ﻿// See https://aka.ms/new-console-template for more information
 
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Polly;
+using System.Reflection;
 using System.Runtime;
-using TelegramNewsBot.ParsedBase;
-using TelegramNewsBot.RequestBse;
+using Telegram.Bot;
+using Telegram.Bots.Configs;
+using TelegramNewsBot.RequestAndParcing.ModelBse;
+using TelegramNewsBot.RequestAndParcing.ParsedBase;
+using TelegramNewsBot.RequestAndParcing.RequestBse;
+using TelegramNewsBot.TelegramBotSet.CommandHendler;
+using TelegramNewsBot.TelegramBotSet.InkineButtons;
+using TelegramNewsBot.TelegramBotSet.ModelsTg;
+using TelegramNewsBot.TelegramBotSet.TelegramService;
 
-var service = new ServiceCollection();
-
-service.AddLogging(building =>
+class Program
 {
-    building.AddConsole();
-    building.SetMinimumLevel(LogLevel.Information);
-});
-
-service.AddHttpClient("RssCLient", rssclient =>
-{
-    rssclient.Timeout = TimeSpan.FromSeconds(60);
-    rssclient.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-    rssclient.DefaultRequestHeaders.Accept.ParseAdd("application/xml, text/xml, */*");
-    rssclient.DefaultRequestHeaders.AcceptLanguage.ParseAdd("ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
-    rssclient.DefaultRequestHeaders.AcceptEncoding.ParseAdd("gzip, deflate, br");
-}).AddTransientHttpErrorPolicy(poly =>
-poly.WaitAndRetryAsync(3, retry =>
-TimeSpan.FromSeconds(Math.Pow(2, retry))));
-
-service.AddHttpClient("ApiClient", apiclient =>
-{
-    apiclient.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-    apiclient.DefaultRequestHeaders.Accept.ParseAdd("application/json");
-    apiclient.DefaultRequestHeaders.AcceptLanguage.ParseAdd("ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
-}).AddTransientHttpErrorPolicy(poly =>
-poly.WaitAndRetryAsync(3, retry =>
-TimeSpan.FromSeconds(Math.Pow(2, retry))));
-
-service.AddScoped<RssRequests>();
-service.AddScoped<ParsedClass>();
-//service.AddScoped<>();
-
-var serviceProvider = service.BuildServiceProvider();
-
-string url = "https://tass.com/rss/v2.xml";
-
-using var scope = serviceProvider.CreateScope();
-var main = scope.ServiceProvider.GetRequiredService<RssRequests>();
-Stream result = await main.RssRequestsMethod(url);
-
-using var scope1 = serviceProvider.CreateScope();
-var Reflect = scope1.ServiceProvider.GetRequiredService<ParsedClass>();
-var resultt = await Reflect.ParseRss(result);
-
-if (resultt != null)
-{
-    foreach (var item in resultt)
+    //Основной метод
+    static async Task Main(string[] args)
     {
-        Console.WriteLine($"Title: {item.Title}");
-        Console.WriteLine($"Link: {item.Link}");
-        Console.WriteLine($"Description: {item.Description}");
-        Console.WriteLine($"PublishDate: {item.PublisDate}");
-        Console.WriteLine($"ID: {item.ID}");
-        Console.WriteLine(new string('-', 40));
+        Console.WriteLine("🚀 Запуск Telegram Converter Bot...");
+
+        try
+
+        {
+            var host = CreateHostBuilder(args).Build();
+            Console.WriteLine("✅ Конфигурация загружена");
+            Console.WriteLine("✅ Сервисы зарегистрированы");
+            Console.WriteLine("✅ Запускаем хост...");
+            await host.RunAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ Критическая ошибка: {ex.Message}");
+            Console.WriteLine(ex.StackTrace);
+            Console.WriteLine("\nНажмите любую клавишу для выхода...");
+            Console.ReadKey();
+        }
     }
-}
+
+    static IHostBuilder CreateHostBuilder(string[] args) => Host.CreateDefaultBuilder(args).
+        ConfigureAppConfiguration((context, config) => // Создаем хост с аргументами командной строки
+        {
+            // настройка конфигурации
+            //config.SetBasePath(Directory.GetCurrentDirectory());// базовая папка
+          /*  config.AddJsonFile("jsconfig1.json", optional: false, reloadOnChange: true);*/// берем файл json если нет falseoptional: false
+            //reloadOnChange: если измнаенился во время работы - перезапускаем конфигурацию
+
+            // добавление переменных окружения
+            config.AddEnvironmentVariables();
+
+
+            //Добавляем аргументы командной строки
+            if (args != null)
+            {
+                config.AddCommandLine(args);
+            }
+        })
+        .ConfigureServices((context, services) =>
+        {
+           // С помощью GetSElection выбираем токен из переменных окружения помещаем в бот конфиг
+            services.Configure<BotConfigModel>(
+                context.Configuration.GetSection("TelegramBotNews"));
+
+            //Регистрируем бота как синглтон
+            services.AddSingleton<ITelegramBotClient>(sp =>
+            {
+                var token = "8157960747:AAFVNCK_BUosOgLiFYwXQb9vdET8qcsOpjY";
+                Console.WriteLine($"✅ Создаю TelegramBotClient...");
+
+                // Проверяем токен здесь же
+                var client = new TelegramBotClient(token);
+
+                // Сразу тестируем
+                try
+                {
+                    var me = client.GetMeAsync().GetAwaiter().GetResult();
+                    Console.WriteLine($"✅ TelegramBotClient создан успешно! Бот: @{me.Username}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"❌ Ошибка при создании клиента: {ex.Message}");
+                }
+
+                return client;
+            }); ;
+
+            // Регистрируем обработчик команд
+            services.AddSingleton<CommandHendler>();
+            //Регистрируем фоновую службу, AddHostedService добавляем  - он служит как связь между тг апи и ботом
+            //// и передает команды из тг в Main класс где обрабатываются файлы и команды
+            services.AddHostedService<TelegramService>();
+
+            // Регистрируем словарь для сессий пользователей
+            services.AddSingleton<Dictionary<long, UserDataModel>>();
+
+            Console.WriteLine("✅ Сервисы сконфигурированы");
+        })
+         .ConfigureLogging((context, logging) =>
+         {
+
+             logging.ClearProviders();
+             logging.AddConfiguration(context.Configuration.GetSection("Logging"));
+
+             logging.AddConsole();
+             logging.AddDebug();
+
+             Console.WriteLine("✅ Логирование настроено");
+         })
+        .UseConsoleLifetime();
+
+    public async Task<List<ModelClassRss>> Httprogram()
+    {
+        var service = new ServiceCollection();
+        service.AddLogging(building =>
+        {
+            building.AddConsole();
+            building.SetMinimumLevel(LogLevel.Information);
+        });
+
+        //настроенный клиент под RSS
+        service.AddHttpClient("RssCLient", rssclient =>
+        {
+            rssclient.Timeout = TimeSpan.FromSeconds(60);
+            rssclient.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+            rssclient.DefaultRequestHeaders.Accept.ParseAdd("application/xml, text/xml, */*");
+            rssclient.DefaultRequestHeaders.AcceptLanguage.ParseAdd("ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
+            rssclient.DefaultRequestHeaders.AcceptEncoding.ParseAdd("gzip, deflate, br");
+        }).AddTransientHttpErrorPolicy(poly =>
+        poly.WaitAndRetryAsync(3, retry =>
+        TimeSpan.FromSeconds(Math.Pow(2, retry))));
+
+
+        // настроенный клиент под Api
+        service.AddHttpClient("ApiClient", apiclient =>
+        {
+            apiclient.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+            apiclient.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+            apiclient.DefaultRequestHeaders.AcceptLanguage.ParseAdd("ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
+        }).AddTransientHttpErrorPolicy(poly =>
+        poly.WaitAndRetryAsync(3, retry =>
+        TimeSpan.FromSeconds(Math.Pow(2, retry))));
+
+
+        //Добавление в DI
+        service.AddScoped<RssRequests>();
+        service.AddScoped<ParsedClass>();
+        service.AddScoped<ApiRequests>();
+        //Построение
+        var serviceProvider = service.BuildServiceProvider();
+
+
+        //URL
+        string url = "https://tass.com/rss/v2.xml";
+        //string url2 = "https://ipinfo.io/json";
+
+
+        //Берем класс из DI и делаем запрос
+        using var scope = serviceProvider.CreateScope();
+        var main = scope.ServiceProvider.GetRequiredService<RssRequests>();
+        Stream result = await main.RssRequestsMethod(url);
+
+        //using var scope2 = serviceProvider.CreateScope();
+        //var main2 = scope2.ServiceProvider.GetRequiredService<ApiRequests>();
+
+        //Type type = typeof(ApiRequests);
+        //var methods = type.GetMethods(BindingFlags.NonPublic | BindingFlags.Instance);
+        //MethodInfo infomethod = methods.FirstOrDefault(m => m.Name == "ApiRequesttss");
+        //Object resulte = infomethod.Invoke(main2, new object[] { url2 });
+        //if (resulte is Task<Stream> task)
+        //{
+        //    Stream stream = await task;
+
+        //    using var scope3 = serviceProvider.CreateScope();
+        //    var ReflectC = scope3.ServiceProvider.GetRequiredService<ParsedClass>();
+        //    var finbalresult = await ReflectC.ParsedApi<ModelTestApi>(stream);
+
+        //    if (finbalresult != null)
+        //    {
+        //        Console.WriteLine("=== Информация об IP ===");
+        //        Console.WriteLine($"IP адрес: {finbalresult.ip}");
+        //        Console.WriteLine($"Город: {finbalresult.city}");
+        //        Console.WriteLine($"Страна: {finbalresult.country}");
+        //        Console.WriteLine($"Координаты: {finbalresult.loc}");
+        //        Console.WriteLine($"Провайдер: {finbalresult.org}");
+        //        Console.WriteLine($"Почтовый индекс: {finbalresult.postal}");
+        //        Console.WriteLine($"Часовой пояс: {finbalresult.timezone}");
+        //        Console.WriteLine($"readme: {finbalresult.readme}");
+        //        return finbalresult;
+        //    }
+        //    else
+        //    {
+        //        Console.WriteLine("Новсти не найдены");
+        //        return null;
+        //    }
+
+        // парсим результат запроса
+            using var scope1 = serviceProvider.CreateScope();
+            var Reflect = scope1.ServiceProvider.GetRequiredService<ParsedClass>();
+            var resultt = await Reflect.ParseRss(result);
+
+        // выводим в консоль 
+            if (resultt != null)
+            {
+                foreach (var item in resultt)
+                {
+                    Console.WriteLine($"Title: {item.Title}");
+                    Console.WriteLine($"Link: {item.Link}");
+                    Console.WriteLine($"Description: {item.Description}");
+                    Console.WriteLine($"PublishDate: {item.PublisDate}");
+                    Console.WriteLine($"ID: {item.ID}");
+                    Console.WriteLine(new string('-', 40));
+                }
+                return resultt;
+            }
+            else
+            { 
+                Console.WriteLine("Результат пустой");
+                return null;
+            }
+        }
+    }
