@@ -26,13 +26,13 @@ namespace TelegramNewsBot.TelegramBotSet.InkineButtons
               {
                 new[]
                 {
-                    InlineKeyboardButton.WithCallbackData("Слабое", "/MainCommands"),
+                    InlineKeyboardButton.WithCallbackData("Узнать новости", "/MainCommands"),
                 }
             });
 
             await _botclient.SendTextMessageAsync(
              chatId: chatid,
-             text: "Нажмите на кнопку",
+             text: "Нажмите на кнопку, чтобы узнать новости",
              replyMarkup: objects,
              cancellationToken: cancellation
              );

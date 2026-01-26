@@ -21,11 +21,4 @@ namespace TelegramNewsBot.TelegramBotSet.ModelsTg
         WaitingNews,// ждет новости
         Proccesing// процесс получения новостей
     }
-
-    public class News
-    {
-        public long ChatId { get; set; } //idchat
-        public DateTime RequestTime { get; set; }//время запроса
-
-    }
 }

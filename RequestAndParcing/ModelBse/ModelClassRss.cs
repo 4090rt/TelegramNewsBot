@@ -10,7 +10,7 @@ namespace TelegramNewsBot.RequestAndParcing.ModelBse
     {
         public string Title { get; set; }
         public Uri Link { get; set; }
-        public string Description { get; set; }
+        //public string Description { get; set; }
         public DateTimeOffset PublisDate { get; set; }
         public string ID { get; set; }
         public List<string> Categories { get; set; }

@@ -4,22 +4,25 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using Telegram.Bot.Exceptions;
 
 namespace TelegramNewsBot.RequestAndParcing.RequestBse
 {
-    public class RssRequests
+    public class RssRequestsReserve
     {
-        private readonly IHttpClientFactory _factory;
-        private readonly ILogger<RssRequests> _logger;
-        public RssRequests(IHttpClientFactory factory,ILogger<RssRequests> logger)
-        {
-            _factory = factory;
+        private readonly Microsoft.Extensions.Logging.ILogger<RssRequestsReserve> _logger;
+        private readonly IHttpClientFactory _httpClientFactory;
+
+        public RssRequestsReserve(IHttpClientFactory httpClientFactory, Microsoft.Extensions.Logging.ILogger<RssRequestsReserve> logger)
+        { 
+            _httpClientFactory = httpClientFactory;
             _logger = logger;
         }
 
-        public async Task<Stream> RssRequestsMethod(string url)
-        { 
-            using var client =  _factory.CreateClient("RssCLient");
+        public async Task<Stream> RssRequestRes(string url)
+        {
+            var client = _httpClientFactory.CreateClient("RssClientReserve");
+
             try
             {
                 _logger.LogInformation("Начинаю запрос");
@@ -36,13 +39,13 @@ namespace TelegramNewsBot.RequestAndParcing.RequestBse
                         }
                         else
                         {
-                            _logger.LogInformation("Поток пустой");
+                            _logger.LogWarning("Поток пустой");
                             return null;
                         }
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError("Не удалось прочитать ответ" + ex.Message);
+                        _logger.LogError("Ошибка при чтении потока данных" + ex.Message);
                         return null;
                     }
                 }
@@ -54,10 +57,10 @@ namespace TelegramNewsBot.RequestAndParcing.RequestBse
             }
             catch (TaskCanceledException ex)
             {
-                _logger.LogError("Таймаут операции + ex.Message");
+                _logger.LogError("Таймаут операции" + ex.Message);
                 return null;
             }
-            catch (HttpRequestException ex)
+            catch (RequestException ex)
             {
                 _logger.LogError("Ошибка запроса" + ex.Message);
                 return null;
@@ -65,7 +68,7 @@ namespace TelegramNewsBot.RequestAndParcing.RequestBse
             catch (Exception ex)
             {
                 _logger.LogError("Возникло исключение" + ex.Message);
-                return null; 
+                return null;
             }
         }
     }

@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System;
 using System.Collections.Generic;
@@ -7,12 +8,12 @@ using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
 using Telegram.Bot;
+using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types;
+using Telegram.Bot.Types.Enums;
 using Telegram.Bots.Types;
 using TelegramNewsBot.TelegramBotSet.CommandHendler;
-using Telegram.Bot.Types.Enums;
-using Telegram.Bot.Exceptions;
-using Microsoft.Extensions.Hosting;
+using TelegramNewsBot.TelegramBotSet.InkineButtons;
 using TelegramNewsBot.TelegramBotSet.ModelsTg;
 
 namespace TelegramNewsBot.TelegramBotSet.TelegramService
@@ -67,8 +68,6 @@ namespace TelegramNewsBot.TelegramBotSet.TelegramService
             try
             {
                 var botToken = _botClient.BotId?.ToString();
-                // или другой способ посмотреть токен
-
                 _logger.LogInformation($"Пытаюсь подключиться с токеном, ID бота: {_botClient.BotId}");
                 // с помощью GetMeAsync  проверяем, что бот запущен
                 var me = await _botClient.GetMeAsync(cancellation);
