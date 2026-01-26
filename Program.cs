@@ -6,8 +6,10 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Polly;
+using Polly.Caching;
 using System.Reflection;
 using System.Runtime;
+using System.Security.Cryptography;
 using Telegram.Bot;
 using Telegram.Bots.Configs;
 using TelegramNewsBot.RequestAndParcing.ModelBse;
@@ -48,8 +50,8 @@ class Program
         {
             // настройка конфигурации
             //config.SetBasePath(Directory.GetCurrentDirectory());// базовая папка
-          /*  config.AddJsonFile("jsconfig1.json", optional: false, reloadOnChange: true);*/// берем файл json если нет falseoptional: false
-            //reloadOnChange: если измнаенился во время работы - перезапускаем конфигурацию
+            /*  config.AddJsonFile("jsconfig1.json", optional: false, reloadOnChange: true);*/// берем файл json если нет falseoptional: false
+                                                                                              //reloadOnChange: если измнаенился во время работы - перезапускаем конфигурацию
 
             // добавление переменных окружения
             config.AddEnvironmentVariables();
@@ -63,7 +65,7 @@ class Program
         })
         .ConfigureServices((context, services) =>
         {
-           // С помощью GetSElection выбираем токен из переменных окружения помещаем в бот конфиг
+            // С помощью GetSElection выбираем токен из переменных окружения помещаем в бот конфиг
             services.Configure<BotConfigModel>(
                 context.Configuration.GetSection("TelegramBotNews"));
 
@@ -111,6 +113,7 @@ class Program
              logging.AddDebug();
 
              Console.WriteLine("✅ Логирование настроено");
+
          })
         .UseConsoleLifetime();
 
@@ -146,72 +149,51 @@ class Program
         poly.WaitAndRetryAsync(3, retry =>
         TimeSpan.FromSeconds(Math.Pow(2, retry))));
 
+        service.AddHttpClient("RssClientReserve", rssclientreserve =>
+        {
+            rssclientreserve.Timeout = TimeSpan.FromSeconds(60);
+            rssclientreserve.DefaultRequestHeaders.Accept.ParseAdd("application/xml, text/xml, */*");
+            rssclientreserve.DefaultRequestHeaders.AcceptLanguage.ParseAdd("ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
+            rssclientreserve.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+        }).AddTransientHttpErrorPolicy(polly =>
+        polly.WaitAndRetryAsync(3, retry =>
+        TimeSpan.FromSeconds(Math.Pow(2, retry))));
 
         //Добавление в DI
         service.AddScoped<RssRequests>();
         service.AddScoped<ParsedClass>();
         service.AddScoped<ApiRequests>();
+        service.AddScoped<RssRequestsReserve>();
         //Построение
         var serviceProvider = service.BuildServiceProvider();
 
 
         //URL
         string url = "https://tass.com/rss/v2.xml";
+        string url3 = "https://www.interfax.ru/rss.asp";
         //string url2 = "https://ipinfo.io/json";
 
+        try
+        {
+            //Берем класс из DI и делаем запрос
+            using var scope = serviceProvider.CreateScope();
+            var main = scope.ServiceProvider.GetRequiredService<RssRequests>();
+            Stream result = await main.RssRequestsMethod(url);
 
-        //Берем класс из DI и делаем запрос
-        using var scope = serviceProvider.CreateScope();
-        var main = scope.ServiceProvider.GetRequiredService<RssRequests>();
-        Stream result = await main.RssRequestsMethod(url);
 
-        //using var scope2 = serviceProvider.CreateScope();
-        //var main2 = scope2.ServiceProvider.GetRequiredService<ApiRequests>();
-
-        //Type type = typeof(ApiRequests);
-        //var methods = type.GetMethods(BindingFlags.NonPublic | BindingFlags.Instance);
-        //MethodInfo infomethod = methods.FirstOrDefault(m => m.Name == "ApiRequesttss");
-        //Object resulte = infomethod.Invoke(main2, new object[] { url2 });
-        //if (resulte is Task<Stream> task)
-        //{
-        //    Stream stream = await task;
-
-        //    using var scope3 = serviceProvider.CreateScope();
-        //    var ReflectC = scope3.ServiceProvider.GetRequiredService<ParsedClass>();
-        //    var finbalresult = await ReflectC.ParsedApi<ModelTestApi>(stream);
-
-        //    if (finbalresult != null)
-        //    {
-        //        Console.WriteLine("=== Информация об IP ===");
-        //        Console.WriteLine($"IP адрес: {finbalresult.ip}");
-        //        Console.WriteLine($"Город: {finbalresult.city}");
-        //        Console.WriteLine($"Страна: {finbalresult.country}");
-        //        Console.WriteLine($"Координаты: {finbalresult.loc}");
-        //        Console.WriteLine($"Провайдер: {finbalresult.org}");
-        //        Console.WriteLine($"Почтовый индекс: {finbalresult.postal}");
-        //        Console.WriteLine($"Часовой пояс: {finbalresult.timezone}");
-        //        Console.WriteLine($"readme: {finbalresult.readme}");
-        //        return finbalresult;
-        //    }
-        //    else
-        //    {
-        //        Console.WriteLine("Новсти не найдены");
-        //        return null;
-        //    }
-
-        // парсим результат запроса
+            // парсим результат запроса
             using var scope1 = serviceProvider.CreateScope();
             var Reflect = scope1.ServiceProvider.GetRequiredService<ParsedClass>();
             var resultt = await Reflect.ParseRss(result);
 
-        // выводим в консоль 
+            // выводим в консоль 
             if (resultt != null)
             {
                 foreach (var item in resultt)
                 {
                     Console.WriteLine($"Title: {item.Title}");
                     Console.WriteLine($"Link: {item.Link}");
-                    Console.WriteLine($"Description: {item.Description}");
+                    //Console.WriteLine($"Description: {item.Description}");
                     Console.WriteLine($"PublishDate: {item.PublisDate}");
                     Console.WriteLine($"ID: {item.ID}");
                     Console.WriteLine(new string('-', 40));
@@ -219,9 +201,40 @@ class Program
                 return resultt;
             }
             else
-            { 
+            {
+                Console.WriteLine("Результат пустой");
+                return null;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Возникло исключение" + ex.Message + "Перехожу на резервный источник");
+            using var scope = serviceProvider.CreateScope();
+            var reserve = scope.ServiceProvider.GetRequiredService<RssRequestsReserve>();
+            var resultats = await reserve.RssRequestRes(url3);
+
+            using var scope1 = serviceProvider.CreateScope();
+            var Reflect = scope1.ServiceProvider.GetRequiredService<ParsedClass>();
+            var resultt = await Reflect.ParseRssReserve(resultats);
+
+            if (resultt != null)
+            {
+                foreach (var item in resultt)
+                {
+                    Console.WriteLine($"Title: {item.Title}");
+                    Console.WriteLine($"Link: {item.Link}");
+                    //Console.WriteLine($"Description: {item.Description}");
+                    Console.WriteLine($"PublishDate: {item.PublisDate}");
+                    Console.WriteLine($"ID: {item.ID}");
+                    Console.WriteLine(new string('-', 40));
+                }
+                return resultt;
+            }
+            else
+            {
                 Console.WriteLine("Результат пустой");
                 return null;
             }
         }
     }
+}
