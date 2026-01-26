@@ -72,7 +72,7 @@ class Program
             //Регистрируем бота как синглтон
             services.AddSingleton<ITelegramBotClient>(sp =>
             {
-                var token = "8157960747:AAFVNCK_BUosOgLiFYwXQb9vdET8qcsOpjY";
+                var token = "";
                 Console.WriteLine($"✅ Создаю TelegramBotClient...");
 
                 // Проверяем токен здесь же
@@ -238,3 +238,4 @@ class Program
         }
     }
 }
+
