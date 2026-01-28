@@ -62,58 +62,89 @@ namespace TelegramNewsBot.RequestAndParcing.ParsedBase
             }
         }
 
-        public async Task<T> ParsedApi<T>(Stream json) where T : new()
+        public async Task<ModelTestApi>/*<T>*/ ParsedApi/*<T>*/(Stream json) /*where T : new()*/
         {
+            //try
+            //{
+            //    if (json != null)
+            //    {
+            //        var deserialize1 = await JsonSerializer.DeserializeAsync<Dictionary<string, JsonElement>>(json);
+
+            //        if (deserialize1 != null)
+            //        {
+            //            foreach (var des in deserialize1)
+            //            {
+            //                Console.WriteLine($"{des.Key}: {des.Value.GetRawText()}");
+            //            }
+
+            //            T result = new T();
+            //            Type type = typeof(T);
+
+            //            foreach (var kvp in deserialize1)
+            //            {
+            //                PropertyInfo prop = type.GetProperty(kvp.Key,
+            //             BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+            //                if (prop != null && prop.CanWrite)
+            //                {
+            //                    object ob = JsonSerializer.Deserialize(kvp.Value.GetRawText(), prop.PropertyType);
+            //                    prop.SetValue(result, ob);
+            //                    _logger.LogInformation("Десериализаванно успешно");
+            //                }
+            //                else
+            //                {
+            //                    _logger.LogWarning("Свойства не найдены");
+            //                }
+            //            }
+            //            return result;
+            //        }
+            //        else
+            //        {
+            //            _logger.LogWarning("Объект пуст");
+            //            return default;
+            //        }
+            //    }
+            //    else
+            //    {
+            //        _logger.LogWarning("Поток данных пуст");
+            //        return default;
+            //    }
+            //}
+            //catch (Exception ex)
+            //{
+            //    _logger.LogError("Возникло исключение" + ex.Message);
+            //    return default;
+            //}
+
             try
             {
-                if (json != null)
+                using var reader = new StreamReader(json);
+                var jsonText = await reader.ReadToEndAsync();
+
+                // Десериализуем стандартным способом
+                var options = new JsonSerializerOptions
                 {
-                    var deserialize1 = await JsonSerializer.DeserializeAsync<Dictionary<string, JsonElement>>(json);
+                    PropertyNameCaseInsensitive = true
+                };
 
-                    if (deserialize1 != null)
-                    {
-                        foreach (var des in deserialize1)
-                        {
-                            Console.WriteLine($"{des.Key}: {des.Value.GetRawText()}");
-                        }
+                var result = JsonSerializer.Deserialize<ModelTestApi>(jsonText, options);
 
-                        T result = new T();
-                        Type type = typeof(T);
-
-                        foreach (var kvp in deserialize1)
-                        {
-                            PropertyInfo prop = type.GetProperty(kvp.Key,
-                         BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
-                            if (prop != null && prop.CanWrite)
-                            {
-                                object ob = JsonSerializer.Deserialize(kvp.Value.GetRawText(), prop.PropertyType);
-                                prop.SetValue(result, ob);
-                                _logger.LogInformation("Десериализаванно успешно");
-                            }
-                            else
-                            {
-                                _logger.LogWarning("Свойства не найдены");
-                            }
-                        }
-                        return result;
-                    }
-                    else
-                    {
-                        _logger.LogWarning("Объект пуст");
-                        return default;
-                    }
-                }
-                else
+                // Проверяем что заполнилось
+                if (result != null)
                 {
-                    _logger.LogWarning("Поток данных пуст");
-                    return default;
+                    Console.WriteLine($"Timezone: {result.Timezone}");
+                    Console.WriteLine($"TimezoneOffset: {result.TimezoneOffset}");
+                    Console.WriteLine($"Time24: {result.Time24}");
+                    Console.WriteLine($"Date: {result.Date}");
                 }
+
+                return result;
             }
             catch (Exception ex)
             {
-                _logger.LogError("Возникло исключение" + ex.Message);
-                return default;
+                _logger.LogError(ex, "Ошибка парсинга timezone API");
+                return new ModelTestApi();
             }
+
         }
         public async Task<List<ModelClassRss>> ParseRssReserve(Stream stream)
         {

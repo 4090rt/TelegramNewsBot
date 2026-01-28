@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using TelegramNewsBot.TelegramBotSet.ModelsTg;
 
 namespace TelegramNewsBot.RequestAndParcing.RequestBse
 {
@@ -11,21 +12,27 @@ namespace TelegramNewsBot.RequestAndParcing.RequestBse
     {
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly ILogger<ApiRequests> _logger;
+        public readonly Dictionary<long, UserDataModel> _userSession;
 
         public ApiRequests(IHttpClientFactory httpClientFactory, ILogger<ApiRequests> logger)
         { 
             _httpClientFactory = httpClientFactory;
             _logger = logger;
+            _userSession = new Dictionary<long, UserDataModel>();
         }
 
-        private async Task<Stream> ApiRequesttss(string url)
+        public async Task<Stream> ApiRequesttss(string url, string citys)
         {
+            char[] MyChar = {'!'};
+            string city = citys.TrimStart(MyChar);
+            string updateurl = url + city;
+            Console.WriteLine(updateurl);
             try
             {
                 var client = _httpClientFactory.CreateClient("ApiClient");
 
                 _logger.LogInformation("Начинаю запрос");
-                HttpResponseMessage recpon = await client.GetAsync(url).ConfigureAwait(false);
+                HttpResponseMessage recpon = await client.GetAsync(updateurl).ConfigureAwait(false);
                 _logger.LogInformation($"Запрос выполнен");
                 if (recpon.IsSuccessStatusCode)
                 {
