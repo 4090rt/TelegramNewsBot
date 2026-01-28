@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Options;
+﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -7,6 +8,8 @@ using System.Text;
 using System.Threading.Tasks;
 using Telegram.Bot;
 using Telegram.Bots.Types;
+using TelegramNewsBot.DataBase;
+using TelegramNewsBot.RequestAndParcing.ModelBse;
 using TelegramNewsBot.TelegramBotSet.InkineButtons;
 using TelegramNewsBot.TelegramBotSet.ModelsTg;
 
@@ -27,18 +30,52 @@ namespace TelegramNewsBot.TelegramBotSet.Commands
             _logger = logger;
         }
 
-        public async Task FabricCommand(long chatId, string command, CancellationToken cancellationToken)
+        public async Task FabricCommand(long chatId, string command, CancellationToken cancellationToken, string username)
         {
             switch (command)
             {
                 case "/MainCommands":
+                    string log3 = "Вызов команды /MainCommands ";
+                    string loguser3 = username;
+                    DateTime date3 = DateTime.UtcNow;
+                    _logger.LogInformation(log3);
+                    DbSaveCommands save3 = new DbSaveCommands(_logger);
+                    await save3.Addcommands(log3, loguser3, date3.ToString());
+
                     await MainCommand(chatId, cancellationToken);
                     break;
+
                 case "/start":
+                    string log = "Вызов команды /Start ";
+                    string loguser = username;
+                    DateTime date = DateTime.UtcNow;
+                    _logger.LogInformation(log);
+                    DbSaveCommands save = new DbSaveCommands(_logger);
+                    await save.Addcommands(log, loguser, date.ToString());
+
+
+                    LastCommands commandS = new LastCommands(_logger);
+                    await commandS.LastnCommand();
+
                     InlineButtons inl = new InlineButtons(_botClient);
                     await inl.InlineButtonss(chatId, cancellationToken);
                     break;
-                    
+
+                case "/weather":
+                    DbPathClass clas = new DbPathClass();
+                    string path = clas.dbpath();
+                    string log2 = "Вызов команды /Weather";
+                    string loguser2 = username;
+                    DateTime date2 = DateTime.UtcNow;
+                    _logger.LogInformation(log2);
+                    DbSaveCommands save2 = new DbSaveCommands(_logger);
+                    await save2.Addcommands(log2,loguser2,date2.ToString());
+
+                    LastCommands commandS2 = new LastCommands(_logger);
+                    await commandS2.LastnCommand();
+
+                    await WeatherCommand(chatId, cancellationToken);
+                    break;
             }
         }
 
@@ -96,6 +133,18 @@ namespace TelegramNewsBot.TelegramBotSet.Commands
                 Console.WriteLine("Результат пустой");
                 return;
             }
+        }
+
+        public async Task WeatherCommand(long chatId, CancellationToken cancellationToken)
+        {
+            await _botClient.SendTextMessageAsync
+                (
+                    chatId: chatId,
+                    text: "Введите название вашего города c !перд названием города",
+                    cancellationToken: cancellationToken
+                );
+
+
         }
     }
 }
