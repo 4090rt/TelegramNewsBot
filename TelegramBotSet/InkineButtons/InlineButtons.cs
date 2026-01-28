@@ -27,6 +27,7 @@ namespace TelegramNewsBot.TelegramBotSet.InkineButtons
                 new[]
                 {
                     InlineKeyboardButton.WithCallbackData("Узнать новости", "/MainCommands"),
+                    InlineKeyboardButton.WithCallbackData("Погода в вашем регионе", "weather")
                 }
             });
 
