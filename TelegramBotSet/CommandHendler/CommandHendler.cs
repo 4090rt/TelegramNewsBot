@@ -11,6 +11,7 @@ using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bots.Types;
 using TelegramNewsBot.TelegramBotSet.ModelsTg;
+using static System.Net.Mime.MediaTypeNames;
 
 namespace TelegramNewsBot.TelegramBotSet.CommandHendler
 {
@@ -78,6 +79,31 @@ namespace TelegramNewsBot.TelegramBotSet.CommandHendler
                 // вызов команды обработки команды
                 Commands.Commands commands = new Commands.Commands(_botClient,_botConfig, _logger);
                 await commands.FabricCommand(chaid, messagetrimed, cancellation);
+                return;
+            }
+
+            if (messagetrimed.StartsWith("!"))
+            {
+                string city = messagetrimed;
+
+                await _botClient.SendTextMessageAsync(
+                     chatId: chaid,
+                     text: $"✅ Город сохранен: {city}, Делаю запрос",
+                     cancellationToken: cancellation);
+
+                Program prog = new Program();
+                var result = await prog.aPIHTTPROGRAM(city);
+
+                foreach (var loc in result)
+                {
+                    await _botClient.SendTextMessageAsync
+                         (
+                       chatId: chaid,
+                       text: loc.TelegramFormattedMessage,
+                       parseMode: Telegram.Bot.Types.Enums.ParseMode.Markdown,
+                       cancellationToken: cancellation
+                         );
+                }
                 return;
             }
             // иначе
