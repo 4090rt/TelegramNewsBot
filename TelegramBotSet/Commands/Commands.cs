@@ -54,9 +54,6 @@ namespace TelegramNewsBot.TelegramBotSet.Commands
                     await save.Addcommands(log, loguser, date.ToString());
 
 
-                    LastCommands commandS = new LastCommands(_logger);
-                    await commandS.LastnCommand();
-
                     InlineButtons inl = new InlineButtons(_botClient);
                     await inl.InlineButtonss(chatId, cancellationToken);
                     break;
@@ -71,10 +68,26 @@ namespace TelegramNewsBot.TelegramBotSet.Commands
                     DbSaveCommands save2 = new DbSaveCommands(_logger);
                     await save2.Addcommands(log2,loguser2,date2.ToString());
 
-                    LastCommands commandS2 = new LastCommands(_logger);
-                    await commandS2.LastnCommand();
-
                     await WeatherCommand(chatId, cancellationToken);
+                    break;
+                case "/UserActivity":
+                    string usernames = "lilchicfgt";
+                    UserSearchCommand command1 = new UserSearchCommand(_logger);
+                    await command1.Command(usernames);
+                    await _botClient.SendTextMessageAsync(
+                        chatId: chatId,
+                        text: "Выполняю",
+                        cancellationToken: cancellationToken
+                        );
+                    break;
+                case "/LastCommand":
+                    DateLast datel = new DateLast(_logger);
+                    await datel.LastDateSeqscrh();
+                    await _botClient.SendTextMessageAsync(
+                    chatId: chatId,
+                    text: "Выполняю",
+                    cancellationToken: cancellationToken
+                    );
                     break;
             }
         }
