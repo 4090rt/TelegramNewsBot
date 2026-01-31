@@ -7,10 +7,12 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Polly;
 using Polly.Caching;
+using System;
 using System.Reflection;
 using System.Runtime;
 using System.Security.Cryptography;
 using Telegram.Bot;
+using Telegram.Bot.Types;
 using Telegram.Bots.Configs;
 using TelegramNewsBot.RequestAndParcing.ModelBse;
 using TelegramNewsBot.RequestAndParcing.ParsedBase;
@@ -72,7 +74,7 @@ class Program
             //Регистрируем бота как синглтон
             services.AddSingleton<ITelegramBotClient>(sp =>
             {
-                var token = "";
+                var token = "8157960747:AAFVNCK_BUosOgLiFYwXQb9vdET8qcsOpjY";
                 Console.WriteLine($"✅ Создаю TelegramBotClient...");
 
                 // Проверяем токен здесь же
@@ -116,6 +118,88 @@ class Program
 
          })
         .UseConsoleLifetime();
+    public async Task<List<ModelTestApi>> aPIHTTPROGRAM2(string city)
+    {
+        var service3 = new ServiceCollection();
+
+        service3.AddLogging(build =>
+        {
+            build.AddConsole();
+            build.SetMinimumLevel(LogLevel.Information);
+        });
+
+        service3.AddHttpClient("ApiClientWeather", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(60);
+            client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+            client.DefaultRequestHeaders.AcceptEncoding.ParseAdd("gzip, deflate, br");
+            client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+        }).AddTransientHttpErrorPolicy(POLLY =>
+        POLLY.WaitAndRetryAsync(3, retryCount =>
+        TimeSpan.FromSeconds(Math.Pow(2, retryCount))));
+
+        service3.AddScoped<>();
+        service3.AddScoped<>();
+
+        var serviceProvider = service3.BuildServiceProvider();
+    }
+    public async Task<List<ModelTestApi>> aPIHTTPROGRAM(string city)
+    {
+        Console.WriteLine("Создание сервиса api");
+        var service2 =  new ServiceCollection();
+        service2.AddLogging(build =>
+        {
+            build.AddConsole();
+            build.SetMinimumLevel(LogLevel.Information);
+        });
+
+        Console.WriteLine("Настрпойка сервиса api");
+        service2.AddHttpClient("ApiClient", apiclient =>
+        {
+            apiclient.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+            apiclient.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+            apiclient.DefaultRequestHeaders.AcceptLanguage.ParseAdd("ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
+            apiclient.DefaultRequestHeaders.AcceptEncoding.ParseAdd("gzip, deflate, br");
+        }).AddTransientHttpErrorPolicy(polly =>
+        polly.WaitAndRetryAsync(3, retryCount =>
+        TimeSpan.FromSeconds(Math.Pow(2, retryCount))));
+
+        service2.AddScoped<ApiRequests>();
+        service2.AddScoped<ParsedClass>();
+
+        var serviceProvider = service2.BuildServiceProvider();
+
+        try
+        {
+            Console.WriteLine("Вызываю метод запроса");
+            string Apikey = "818684b83cb44c9f87e6a189bf48bf83";
+            string url = $"https://api.ipgeolocation.io/timezone?apiKey={Apikey}&location=";
+
+            using var scope = serviceProvider.CreateScope();
+            var main = scope.ServiceProvider.GetRequiredService<ApiRequests>();
+            Stream result = await main.ApiRequesttss(url, city);
+
+
+            using var scope1 = serviceProvider.CreateScope();
+            var Reflect = scope1.ServiceProvider.GetRequiredService<ParsedClass>();
+            var resultt = await Reflect.ParsedApi(result);
+
+            if (resultt != null)
+            {
+                return new List<ModelTestApi> { resultt };
+            }
+            else
+            { 
+                return new List<ModelTestApi>();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Ошибка" + ex.Message);
+            return new List<ModelTestApi>();
+        }
+    }
 
     public async Task<List<ModelClassRss>> Httprogram()
     {
@@ -134,17 +218,6 @@ class Program
             rssclient.DefaultRequestHeaders.Accept.ParseAdd("application/xml, text/xml, */*");
             rssclient.DefaultRequestHeaders.AcceptLanguage.ParseAdd("ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
             rssclient.DefaultRequestHeaders.AcceptEncoding.ParseAdd("gzip, deflate, br");
-        }).AddTransientHttpErrorPolicy(poly =>
-        poly.WaitAndRetryAsync(3, retry =>
-        TimeSpan.FromSeconds(Math.Pow(2, retry))));
-
-
-        // настроенный клиент под Api
-        service.AddHttpClient("ApiClient", apiclient =>
-        {
-            apiclient.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-            apiclient.DefaultRequestHeaders.Accept.ParseAdd("application/json");
-            apiclient.DefaultRequestHeaders.AcceptLanguage.ParseAdd("ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
         }).AddTransientHttpErrorPolicy(poly =>
         poly.WaitAndRetryAsync(3, retry =>
         TimeSpan.FromSeconds(Math.Pow(2, retry))));
@@ -238,4 +311,3 @@ class Program
         }
     }
 }
-
