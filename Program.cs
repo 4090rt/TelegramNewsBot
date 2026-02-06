@@ -1,5 +1,6 @@
 ﻿// See https://aka.ms/new-console-template for more information
 
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -24,6 +25,29 @@ using TelegramNewsBot.TelegramBotSet.TelegramService;
 
 class Program
 {
+    private readonly IServiceProvider _serviceProvider;
+    private readonly RssRequests _rssRequests;
+    private readonly RssRequestsReserve _rssRequestsReserve;
+    private readonly ApiRequests _apiRequests;
+    private readonly ParsedClass _parsedClass;
+    private readonly ILogger<Program> _logger;
+    public Program(
+        RssRequests rssRequests,
+        IServiceProvider serviceProvid,
+        RssRequestsReserve rssRequestsReserve,
+        ApiRequests apiRequests,
+        ParsedClass parsedClass,
+        ILogger<Program> logger)
+    {
+        _rssRequests = rssRequests;
+        _rssRequestsReserve = rssRequestsReserve;
+        _apiRequests = apiRequests;
+        _parsedClass = parsedClass;
+        _logger = logger;
+        _serviceProvider = serviceProvid;
+    }
+
+
     //Основной метод
     static async Task Main(string[] args)
     {
@@ -33,6 +57,8 @@ class Program
 
         {
             var host = CreateHostBuilder(args).Build();
+            using var scope = host.Services.CreateScope();
+            var program = scope.ServiceProvider.GetRequiredService<Program>();
             Console.WriteLine("✅ Конфигурация загружена");
             Console.WriteLine("✅ Сервисы зарегистрированы");
             Console.WriteLine("✅ Запускаем хост...");
@@ -118,37 +144,37 @@ class Program
 
          })
         .UseConsoleLifetime();
-    public async Task<List<ModelTestApi>> aPIHTTPROGRAM2(string city)
-    {
-        var service3 = new ServiceCollection();
+    //public async Task<List<ModelTestApi>> aPIHTTPROGRAM2(string city)
+    //{
+    //    var service3 = new ServiceCollection();
 
-        service3.AddLogging(build =>
-        {
-            build.AddConsole();
-            build.SetMinimumLevel(LogLevel.Information);
-        });
+    //    service3.AddLogging(build =>
+    //    {
+    //        build.AddConsole();
+    //        build.SetMinimumLevel(LogLevel.Information);
+    //    });
 
-        service3.AddHttpClient("ApiClientWeather", client =>
-        {
-            client.Timeout = TimeSpan.FromSeconds(60);
-            client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
-            client.DefaultRequestHeaders.AcceptEncoding.ParseAdd("gzip, deflate, br");
-            client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-        }).AddTransientHttpErrorPolicy(POLLY =>
-        POLLY.WaitAndRetryAsync(3, retryCount =>
-        TimeSpan.FromSeconds(Math.Pow(2, retryCount))));
+    //    service3.AddHttpClient("ApiClientWeather", client =>
+    //    {
+    //        client.Timeout = TimeSpan.FromSeconds(60);
+    //        client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+    //        client.DefaultRequestHeaders.AcceptEncoding.ParseAdd("gzip, deflate, br");
+    //        client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
+    //        client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+    //    }).AddTransientHttpErrorPolicy(POLLY =>
+    //    POLLY.WaitAndRetryAsync(3, retryCount =>
+    //    TimeSpan.FromSeconds(Math.Pow(2, retryCount))));
 
-        service3.AddScoped<>();
-        service3.AddScoped<>();
+    //    service3.AddScoped<>();
+    //    service3.AddScoped<>();
 
-        var serviceProvider = service3.BuildServiceProvider();
-    }
+    //    var serviceProvider = service3.BuildServiceProvider();
+    //}
     public async Task<List<ModelTestApi>> aPIHTTPROGRAM(string city)
     {
         Console.WriteLine("Создание сервиса api");
-        var service2 =  new ServiceCollection();
-        service2.AddLogging(build =>
+
+        _ыук.AddLogging(build =>
         {
             build.AddConsole();
             build.SetMinimumLevel(LogLevel.Information);
@@ -163,12 +189,14 @@ class Program
             apiclient.DefaultRequestHeaders.AcceptEncoding.ParseAdd("gzip, deflate, br");
         }).AddTransientHttpErrorPolicy(polly =>
         polly.WaitAndRetryAsync(3, retryCount =>
-        TimeSpan.FromSeconds(Math.Pow(2, retryCount))));
+        TimeSpan.FromSeconds(Math.Pow(2, retryCount)))).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+        {
+            AutomaticDecompression = System.Net.DecompressionMethods.GZip |
+                            System.Net.DecompressionMethods.Deflate // ⭐ ВКЛЮЧАЕМ АВТОРАСПОКОВКУ Json файлов
+        });
 
         service2.AddScoped<ApiRequests>();
         service2.AddScoped<ParsedClass>();
-
-        var serviceProvider = service2.BuildServiceProvider();
 
         try
         {
@@ -176,12 +204,12 @@ class Program
             string Apikey = "818684b83cb44c9f87e6a189bf48bf83";
             string url = $"https://api.ipgeolocation.io/timezone?apiKey={Apikey}&location=";
 
-            using var scope = serviceProvider.CreateScope();
+            using var scope = _serviceProvider.CreateScope();
             var main = scope.ServiceProvider.GetRequiredService<ApiRequests>();
             Stream result = await main.ApiRequesttss(url, city);
 
 
-            using var scope1 = serviceProvider.CreateScope();
+            using var scope1 = _serviceProvider.CreateScope();
             var Reflect = scope1.ServiceProvider.GetRequiredService<ParsedClass>();
             var resultt = await Reflect.ParsedApi(result);
 
@@ -233,12 +261,11 @@ class Program
         TimeSpan.FromSeconds(Math.Pow(2, retry))));
 
         //Добавление в DI
-        service.AddScoped<RssRequests>();
+        service.AddSingleton<RssRequests>();
         service.AddScoped<ParsedClass>();
         service.AddScoped<ApiRequests>();
         service.AddScoped<RssRequestsReserve>();
-        //Построение
-        var serviceProvider = service.BuildServiceProvider();
+        service.AddMemoryCache();
 
 
         //URL
@@ -249,50 +276,42 @@ class Program
         try
         {
             //Берем класс из DI и делаем запрос
-            using var scope = serviceProvider.CreateScope();
+            using var scope = _serviceProvider.CreateScope();
             var main = scope.ServiceProvider.GetRequiredService<RssRequests>();
-            Stream result = await main.RssRequestsMethod(url);
+            var resultt = await main.CacheRequest(url);
 
-
-            // парсим результат запроса
-            using var scope1 = serviceProvider.CreateScope();
-            var Reflect = scope1.ServiceProvider.GetRequiredService<ParsedClass>();
-            var resultt = await Reflect.ParseRss(result);
 
             // выводим в консоль 
             if (resultt != null)
             {
                 foreach (var item in resultt)
                 {
-                    Console.WriteLine($"Title: {item.Title}");
-                    Console.WriteLine($"Link: {item.Link}");
-                    //Console.WriteLine($"Description: {item.Description}");
-                    Console.WriteLine($"PublishDate: {item.PublisDate}");
-                    Console.WriteLine($"ID: {item.ID}");
-                    Console.WriteLine(new string('-', 40));
+                    //Console.WriteLine($"Title: {item.Title}");
+                    //Console.WriteLine($"Link: {item.Link}");
+                    ////Console.WriteLine($"Description: {item.Description}");
+                    //Console.WriteLine($"PublishDate: {item.PublisDate}");
+                    //Console.WriteLine($"ID: {item.ID}");
+                    //Console.WriteLine(new string('-', 40));
                 }
                 return resultt;
             }
             else
             {
                 Console.WriteLine("Результат пустой");
-                return null;
+                return new List<ModelClassRss>();
             }
         }
         catch (Exception ex)
         {
             Console.WriteLine("Возникло исключение" + ex.Message + "Перехожу на резервный источник");
-            using var scope = serviceProvider.CreateScope();
+            using var scope = _serviceProvider.CreateScope();
             var reserve = scope.ServiceProvider.GetRequiredService<RssRequestsReserve>();
-            var resultats = await reserve.RssRequestRes(url3);
+            var resultats = await reserve.ReserveRequestCache(url);
 
-            using var scope1 = serviceProvider.CreateScope();
-            var Reflect = scope1.ServiceProvider.GetRequiredService<ParsedClass>();
-            var resultt = await Reflect.ParseRssReserve(resultats);
 
-            if (resultt != null)
+            if (resultats != null)
             {
-                foreach (var item in resultt)
+                foreach (var item in resultats)
                 {
                     Console.WriteLine($"Title: {item.Title}");
                     Console.WriteLine($"Link: {item.Link}");
@@ -301,12 +320,12 @@ class Program
                     Console.WriteLine($"ID: {item.ID}");
                     Console.WriteLine(new string('-', 40));
                 }
-                return resultt;
+                return resultats;
             }
             else
             {
                 Console.WriteLine("Результат пустой");
-                return null;
+                return new List<ModelClassRss>();
             }
         }
     }
