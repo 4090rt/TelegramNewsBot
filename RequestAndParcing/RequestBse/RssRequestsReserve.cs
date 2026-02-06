@@ -1,10 +1,14 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Telegram.Bot.Exceptions;
+using Telegram.Bots.Types;
+using TelegramNewsBot.RequestAndParcing.ModelBse;
+using TelegramNewsBot.RequestAndParcing.ParsedBase;
 
 namespace TelegramNewsBot.RequestAndParcing.RequestBse
 {
@@ -12,64 +16,108 @@ namespace TelegramNewsBot.RequestAndParcing.RequestBse
     {
         private readonly Microsoft.Extensions.Logging.ILogger<RssRequestsReserve> _logger;
         private readonly IHttpClientFactory _httpClientFactory;
+        private readonly Microsoft.Extensions.Caching.Memory.IMemoryCache _memoryCache;
+        private readonly Microsoft.Extensions.Logging.ILogger<ParsedClass> _loggerparsed;
 
-        public RssRequestsReserve(IHttpClientFactory httpClientFactory, Microsoft.Extensions.Logging.ILogger<RssRequestsReserve> logger)
-        { 
+        public RssRequestsReserve(IHttpClientFactory httpClientFactory, Microsoft.Extensions.Logging.ILogger<RssRequestsReserve> logger, Microsoft.Extensions.Caching.Memory.IMemoryCache memoryCache)
+        {
             _httpClientFactory = httpClientFactory;
             _logger = logger;
+            _memoryCache = memoryCache;
+            _memoryCache = memoryCache;
         }
 
-        public async Task<Stream> RssRequestRes(string url)
+        public async Task<List<ModelClassRss>> ReserveRequestCache(string url)
         {
-            var client = _httpClientFactory.CreateClient("RssClientReserve");
+            string keycache = $"cache_key" + DateTime.UtcNow;
 
+            if (_memoryCache.TryGetValue(keycache, out object? cacheobject))
+            {
+                if (cacheobject is List<ModelClassRss> cachelist)
+                {
+                    _logger.LogInformation($"📦 Данные из кэша для {keycache}");
+                    return cachelist;
+                }
+            }
             try
             {
+                _logger.LogInformation("Делаю Запрос новостей");
+                var request = await ReserveRequest(url);
+
+                var options = new MemoryCacheEntryOptions()
+                    .SetAbsoluteExpiration(TimeSpan.FromMinutes(5))
+                    .SetSlidingExpiration(TimeSpan.FromMinutes(3));
+
+                _memoryCache.Set(keycache, request, options);
+
+                return request;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка при получении Информации");
+                throw;
+            }
+        }
+
+        public async Task<List<ModelClassRss>> ReserveRequest(string url)
+        {
+            try
+            {
+                var client = _httpClientFactory.CreateClient("RssClientReserv");
                 _logger.LogInformation("Начинаю запрос");
-                HttpResponseMessage response = await client.GetAsync(url).ConfigureAwait(false);
-                if (response.IsSuccessStatusCode)
+                HttpResponseMessage respon = await client.GetAsync(url).ConfigureAwait(false);
+                _logger.LogInformation($"Запрос завершен статус код: {respon.StatusCode}");
+                if (respon.IsSuccessStatusCode)
                 {
-                    try
+                    if (respon != null)
                     {
-                        var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
-                        if (stream != null)
+                        try
                         {
-                            _logger.LogInformation("Данные получены");
-                            return stream;
+                            _logger.LogInformation("Читаю ответ");
+                            var content = await respon.Content.ReadAsStreamAsync().ConfigureAwait(false);
+                            _logger.LogInformation("Ответ прочитан");
+
+                            _logger.LogInformation("Начинаю парсинг");
+                            ParsedClass parsed = new ParsedClass(_loggerparsed);
+                            var result = await parsed.ParseRss(content);
+                            _logger.LogInformation("Ответ распаршен");
+
+                            return result;
                         }
-                        else
+                        catch (Exception ex)
                         {
-                            _logger.LogWarning("Поток пустой");
-                            return null;
+                            _logger.LogError("Возникло исключение при чтении ответа" + ex.Message + ex.StackTrace);
+                            return new List<ModelClassRss>();
                         }
                     }
-                    catch (Exception ex)
+                    else
                     {
-                        _logger.LogError("Ошибка при чтении потока данных" + ex.Message);
-                        return null;
+                        _logger.LogError("Ответ пуст");
+                        return new List<ModelClassRss>();
                     }
                 }
                 else
                 {
-                    _logger.LogError($"Ошибка запроса: посткод: {response.StatusCode}");
-                    return null;
+                    _logger.LogError("При выполнении запроса возникла ошибка" + respon.StatusCode);
+                    return new List<ModelClassRss>();
                 }
             }
             catch (TaskCanceledException ex)
             {
-                _logger.LogError("Таймаут операции" + ex.Message);
-                return null;
+                _logger.LogError("Опаерация отменена" + ex.Message  + ex.StackTrace);
+                return new List<ModelClassRss>();
             }
             catch (RequestException ex)
             {
-                _logger.LogError("Ошибка запроса" + ex.Message);
-                return null;
+                _logger.LogError("При выполнени запроса возникло исключение" + ex.Message + ex.StackTrace);
+                return new List<ModelClassRss>();
             }
             catch (Exception ex)
             {
-                _logger.LogError("Возникло исключение" + ex.Message);
-                return null;
+                _logger.LogError("Возникло исключение" + ex.Message + ex.StackTrace);
+                return new List<ModelClassRss>();
             }
         }
+
     }
 }
