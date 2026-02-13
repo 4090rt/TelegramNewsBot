@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System;
 using System.Collections.Generic;
@@ -9,7 +10,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using Telegram.Bot;
 using Telegram.Bot.Types;
+using Telegram.Bots.Http;
 using Telegram.Bots.Types;
+using TelegramNewsBot.RequestAndParcing.ParsedBase;
+using TelegramNewsBot.RequestAndParcing.RequestBse;
 using TelegramNewsBot.TelegramBotSet.ModelsTg;
 using static System.Net.Mime.MediaTypeNames;
 
@@ -22,13 +26,32 @@ namespace TelegramNewsBot.TelegramBotSet.CommandHendler
         public readonly Dictionary<long, UserDataModel> _userSession;
         public readonly BotConfigModel _botConfig;
         public readonly ILogger _logger;
+        private readonly IServiceProvider _serviceProvider;
+        private readonly RssRequests _rssRequests;
+        private readonly RssRequestsReserve _rssRequestsReserve;
+        private readonly ApiRequests _apiRequests;
+        private readonly ParsedClass _parsedClass;
+        private readonly Program _program;
+  
 
-        public CommandHendler(ITelegramBotClient botClient, IOptions<BotConfigModel> config, ILogger<CommandHendler> logger)
+
+        public CommandHendler(ITelegramBotClient botClient, IOptions<BotConfigModel> config, ILogger<CommandHendler> logger, IServiceProvider serviceProvider, RssRequestsReserve rssRequestsReserve,
+        ApiRequests apiRequests,
+        ParsedClass parsedClass,
+        RssRequests rssRequests,
+        Program program)
         {
             _botClient = botClient;
-            _botConfig= config.Value;
+            _botConfig = config.Value;
             _logger = logger;
             _userSession = new Dictionary<long, UserDataModel>();
+            _serviceProvider = serviceProvider;
+            _rssRequests = rssRequests;
+            _rssRequestsReserve = rssRequestsReserve;
+            _apiRequests = apiRequests;
+            _parsedClass = parsedClass;
+            _logger = logger;
+            _program = program;
         }
 
         // метод обработки команд
@@ -72,13 +95,15 @@ namespace TelegramNewsBot.TelegramBotSet.CommandHendler
             var messagetrimed = message.Text.Trim();
             // определлили текущую сессию для использования в коде
             var sessing = _userSession[chaid];
+            var userid = message.From?.Id ?? 0;
+            var username = message.From?.Username ?? "Anonumys";
 
             // если начинается с / - команда
             if (messagetrimed.StartsWith("/"))
             {
                 // вызов команды обработки команды
-                Commands.Commands commands = new Commands.Commands(_botClient,_botConfig, _logger);
-                await commands.FabricCommand(chaid, messagetrimed, cancellation);
+                Commands.Commands commands = new(_botClient, _botConfig, _logger, _serviceProvider, _rssRequestsReserve, _apiRequests, _parsedClass, _rssRequests, _program);
+                await commands.FabricCommand(chaid, messagetrimed, cancellation, username);
                 return;
             }
 
@@ -91,8 +116,7 @@ namespace TelegramNewsBot.TelegramBotSet.CommandHendler
                      text: $"✅ Город сохранен: {city}, Делаю запрос",
                      cancellationToken: cancellation);
 
-                Program prog = new Program();
-                var result = await prog.aPIHTTPROGRAM(city);
+                var result = await _program.GetTimeZoneAsync(city);
 
                 foreach (var loc in result)
                 {
@@ -118,19 +142,25 @@ namespace TelegramNewsBot.TelegramBotSet.CommandHendler
             }
         }
         // обработка нажатий по кнопке
-        public async Task CallBackAsync(Telegram.Bot.Types.CallbackQuery callback, CancellationToken cancellation)
+        public async Task CallBackAsync(Telegram.Bot.Types.CallbackQuery callbackQuery, CancellationToken cancellation)
         { 
             // получили чат айди
-            var chatid = callback.Message.Chat.Id;
+            var chatid = callbackQuery.Message.Chat.Id;
 
-            var callbackData = callback.Data;
+            var callbackData = callbackQuery.Data;
 
+
+            await _botClient.AnswerCallbackQueryAsync(callbackQuery.Id, cancellationToken: cancellation);
             // определение команды
             switch (callbackData)
             {
                 case "/MainCommands":
-                    Commands.Commands com = new Commands.Commands(_botClient,_botConfig, _logger);
+                    Commands.Commands com = new Commands.Commands(_botClient,_botConfig, _logger, _serviceProvider, _rssRequestsReserve, _apiRequests, _parsedClass, _rssRequests, _program);
                     await com.MainCommand(chatid,cancellation);
+                    break;
+                case "/weather":
+                    Commands.Commands com2 = new Commands.Commands(_botClient, _botConfig, _logger, _serviceProvider, _rssRequestsReserve, _apiRequests, _parsedClass, _rssRequests, _program);
+                    await com2.WeatherCommand(chatid,cancellation); 
                     break;
             }
         }

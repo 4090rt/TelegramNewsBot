@@ -10,7 +10,7 @@ namespace TelegramNewsBot.TelegramBotSet.ModelsTg
     {
         public long ChaId { get; set; }//айди чата
         public UserState state { get; set; }// Статус пользователя
-        public string Email { get; set; }// Email пользователя
+        public string City { get; set; }// пользователя
         public DateTime TimeNewsUpdate { get; set; } = DateTime.UtcNow;// время обновления новостей
         public DateTime LastActivity { get; set; } = DateTime.UtcNow;// Время последней активности
     }

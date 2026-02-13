@@ -10,6 +10,8 @@ using Telegram.Bot;
 using Telegram.Bots.Types;
 using TelegramNewsBot.DataBase;
 using TelegramNewsBot.RequestAndParcing.ModelBse;
+using TelegramNewsBot.RequestAndParcing.ParsedBase;
+using TelegramNewsBot.RequestAndParcing.RequestBse;
 using TelegramNewsBot.TelegramBotSet.InkineButtons;
 using TelegramNewsBot.TelegramBotSet.ModelsTg;
 
@@ -21,13 +23,28 @@ namespace TelegramNewsBot.TelegramBotSet.Commands
         private readonly BotConfigModel _botConfig;
         private readonly Dictionary<long, UserDataModel> _userSession;
         private readonly Microsoft.Extensions.Logging.ILogger _logger;
-
-        public Commands(ITelegramBotClient botClient, BotConfigModel config, Microsoft.Extensions.Logging.ILogger logger)
+        private readonly IServiceProvider _serviceProvider;
+        private readonly RssRequests _rssRequests;
+        private readonly RssRequestsReserve _rssRequestsReserve;
+        private readonly ApiRequests _apiRequests;
+        private readonly ParsedClass _parsedClass;
+        private readonly Program _program;
+        
+        public Commands(ITelegramBotClient botClient, BotConfigModel config, Microsoft.Extensions.Logging.ILogger logger, IServiceProvider serviceProvider, RssRequestsReserve rssRequestsReserve,
+        ApiRequests apiRequests,
+        ParsedClass parsedClass, RssRequests rssRequests, Program program)
         {
             _botClient = botClient;
             _botConfig = config;
             _userSession = new Dictionary<long, UserDataModel>();
             _logger = logger;
+            _serviceProvider = serviceProvider;
+            _rssRequests = rssRequests;
+            _rssRequestsReserve = rssRequestsReserve;
+            _apiRequests = apiRequests;
+            _parsedClass = parsedClass;
+            _logger = logger;
+            _program = program;
         }
 
         public async Task FabricCommand(long chatId, string command, CancellationToken cancellationToken, string username)
@@ -100,9 +117,7 @@ namespace TelegramNewsBot.TelegramBotSet.Commands
                     text: "Ищем самые последние новости!",
                     cancellationToken: cancellationToken
                 );
-
-            Program prog = new Program();
-            var resultat = await prog.Httprogram();
+            var resultat = await _program.GetNewsAsync();
             if (resultat != null)
             {
                 var messagecount = 1;
@@ -153,11 +168,9 @@ namespace TelegramNewsBot.TelegramBotSet.Commands
             await _botClient.SendTextMessageAsync
                 (
                     chatId: chatId,
-                    text: "Введите название вашего города c !перд названием города",
+                    text: "Введите название вашего города c !перед названием города",
                     cancellationToken: cancellationToken
                 );
-
-
         }
     }
 }
