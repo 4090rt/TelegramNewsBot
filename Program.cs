@@ -9,6 +9,7 @@ using Microsoft.Extensions.Options;
 using Polly;
 using Polly.Caching;
 using System;
+using System.Net;
 using System.Reflection;
 using System.Runtime;
 using System.Security.Cryptography;
@@ -23,7 +24,7 @@ using TelegramNewsBot.TelegramBotSet.InkineButtons;
 using TelegramNewsBot.TelegramBotSet.ModelsTg;
 using TelegramNewsBot.TelegramBotSet.TelegramService;
 
-class Program
+public class Program
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly RssRequests _rssRequests;
@@ -31,37 +32,44 @@ class Program
     private readonly ApiRequests _apiRequests;
     private readonly ParsedClass _parsedClass;
     private readonly ILogger<Program> _logger;
+    private readonly IMemoryCache _memoryCache;
+
     public Program(
         RssRequests rssRequests,
-        IServiceProvider serviceProvid,
+        IServiceProvider serviceProvider,
         RssRequestsReserve rssRequestsReserve,
         ApiRequests apiRequests,
         ParsedClass parsedClass,
-        ILogger<Program> logger)
+        ILogger<Program> logger,
+        IMemoryCache memoryCache)  // Добавили кэш
     {
         _rssRequests = rssRequests;
         _rssRequestsReserve = rssRequestsReserve;
         _apiRequests = apiRequests;
         _parsedClass = parsedClass;
         _logger = logger;
-        _serviceProvider = serviceProvid;
+        _serviceProvider = serviceProvider;
+        _memoryCache = memoryCache;
     }
 
-
-    //Основной метод
     static async Task Main(string[] args)
     {
         Console.WriteLine("🚀 Запуск Telegram Converter Bot...");
 
         try
-
         {
             var host = CreateHostBuilder(args).Build();
             using var scope = host.Services.CreateScope();
             var program = scope.ServiceProvider.GetRequiredService<Program>();
+
+            // Пример вызова методов (можно вызывать где нужно)
+            // await program.GetTimeZoneAsync("Moscow");
+            // await program.GetNewsAsync();
+
             Console.WriteLine("✅ Конфигурация загружена");
             Console.WriteLine("✅ Сервисы зарегистрированы");
             Console.WriteLine("✅ Запускаем хост...");
+
             await host.RunAsync();
         }
         catch (Exception ex)
@@ -73,260 +81,264 @@ class Program
         }
     }
 
-    static IHostBuilder CreateHostBuilder(string[] args) => Host.CreateDefaultBuilder(args).
-        ConfigureAppConfiguration((context, config) => // Создаем хост с аргументами командной строки
-        {
-            // настройка конфигурации
-            //config.SetBasePath(Directory.GetCurrentDirectory());// базовая папка
-            /*  config.AddJsonFile("jsconfig1.json", optional: false, reloadOnChange: true);*/// берем файл json если нет falseoptional: false
-                                                                                              //reloadOnChange: если измнаенился во время работы - перезапускаем конфигурацию
-
-            // добавление переменных окружения
-            config.AddEnvironmentVariables();
-
-
-            //Добавляем аргументы командной строки
-            if (args != null)
+    static IHostBuilder CreateHostBuilder(string[] args) =>
+        Host.CreateDefaultBuilder(args)
+            .ConfigureAppConfiguration((context, config) =>
             {
-                config.AddCommandLine(args);
-            }
-        })
-        .ConfigureServices((context, services) =>
-        {
-            // С помощью GetSElection выбираем токен из переменных окружения помещаем в бот конфиг
-            services.Configure<BotConfigModel>(
-                context.Configuration.GetSection("TelegramBotNews"));
-
-            //Регистрируем бота как синглтон
-            services.AddSingleton<ITelegramBotClient>(sp =>
+                config.AddEnvironmentVariables();
+                if (args != null)
+                {
+                    config.AddCommandLine(args);
+                }
+            })
+            .ConfigureServices((context, services) =>
             {
-                var token = "8157960747:AAFVNCK_BUosOgLiFYwXQb9vdET8qcsOpjY";
-                Console.WriteLine($"✅ Создаю TelegramBotClient...");
+                // Настройка конфигурации бота
+                services.Configure<BotConfigModel>(
+                    context.Configuration.GetSection("TelegramBotNews"));
 
-                // Проверяем токен здесь же
-                var client = new TelegramBotClient(token);
-
-                // Сразу тестируем
-                try
+                // Регистрируем бота
+                services.AddSingleton<ITelegramBotClient>(sp =>
                 {
-                    var me = client.GetMeAsync().GetAwaiter().GetResult();
-                    Console.WriteLine($"✅ TelegramBotClient создан успешно! Бот: @{me.Username}");
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"❌ Ошибка при создании клиента: {ex.Message}");
-                }
+                    var token = "8157960747:AAFVNCK_BUosOgLiFYwXQb9vdET8qcsOpjY";
+                    Console.WriteLine($"✅ Создаю TelegramBotClient...");
 
-                return client;
-            }); ;
+                    var client = new TelegramBotClient(token);
 
-            // Регистрируем обработчик команд
-            services.AddSingleton<CommandHendler>();
-            //Регистрируем фоновую службу, AddHostedService добавляем  - он служит как связь между тг апи и ботом
-            //// и передает команды из тг в Main класс где обрабатываются файлы и команды
-            services.AddHostedService<TelegramService>();
+                    try
+                    {
+                        var me = client.GetMeAsync().GetAwaiter().GetResult();
+                        Console.WriteLine($"✅ TelegramBotClient создан успешно! Бот: @{me.Username}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"❌ Ошибка при создании клиента: {ex.Message}");
+                    }
 
-            // Регистрируем словарь для сессий пользователей
-            services.AddSingleton<Dictionary<long, UserDataModel>>();
+                    return client;
+                });
 
-            Console.WriteLine("✅ Сервисы сконфигурированы");
-        })
-         .ConfigureLogging((context, logging) =>
-         {
+                // Регистрируем HTTP клиенты
+                ConfigureHttpClients(services);
 
-             logging.ClearProviders();
-             logging.AddConfiguration(context.Configuration.GetSection("Logging"));
+                // Регистрируем сервисы
+                services.AddSingleton<CommandHendler>();
+                services.AddHostedService<TelegramService>();
+                services.AddSingleton<Dictionary<long, UserDataModel>>();
 
-             logging.AddConsole();
-             logging.AddDebug();
+                // ВАЖНО: Регистрируем все наши сервисы
+                services.AddScoped<RssRequests>();
+                services.AddScoped<RssRequestsReserve>();
+                services.AddScoped<ApiRequests>();
+                services.AddScoped<ParsedClass>();
 
-             Console.WriteLine("✅ Логирование настроено");
+                // Добавляем кэширование (одна инстанция на всё приложение)
+                services.AddMemoryCache();
 
-         })
-        .UseConsoleLifetime();
-    //public async Task<List<ModelTestApi>> aPIHTTPROGRAM2(string city)
-    //{
-    //    var service3 = new ServiceCollection();
+                // Регистрируем Program
+                services.AddScoped<Program>();
 
-    //    service3.AddLogging(build =>
-    //    {
-    //        build.AddConsole();
-    //        build.SetMinimumLevel(LogLevel.Information);
-    //    });
+                Console.WriteLine("✅ Сервисы сконфигурированы");
+            })
+            .ConfigureLogging((context, logging) =>
+            {
+                logging.ClearProviders();
+                logging.AddConfiguration(context.Configuration.GetSection("Logging"));
+                logging.AddConsole();
+                logging.AddDebug();
+                Console.WriteLine("✅ Логирование настроено");
+            })
+            .UseConsoleLifetime();
 
-    //    service3.AddHttpClient("ApiClientWeather", client =>
-    //    {
-    //        client.Timeout = TimeSpan.FromSeconds(60);
-    //        client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
-    //        client.DefaultRequestHeaders.AcceptEncoding.ParseAdd("gzip, deflate, br");
-    //        client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
-    //        client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-    //    }).AddTransientHttpErrorPolicy(POLLY =>
-    //    POLLY.WaitAndRetryAsync(3, retryCount =>
-    //    TimeSpan.FromSeconds(Math.Pow(2, retryCount))));
-
-    //    service3.AddScoped<>();
-    //    service3.AddScoped<>();
-
-    //    var serviceProvider = service3.BuildServiceProvider();
-    //}
-    public async Task<List<ModelTestApi>> aPIHTTPROGRAM(string city)
+    private static void ConfigureHttpClients(IServiceCollection services)
     {
-        Console.WriteLine("Создание сервиса api");
-
-        _ыук.AddLogging(build =>
+        // Клиент для API
+        services.AddHttpClient("ApiClient", client =>
         {
-            build.AddConsole();
-            build.SetMinimumLevel(LogLevel.Information);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+            client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+            client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
+            client.DefaultRequestHeaders.AcceptEncoding.ParseAdd("gzip, deflate, br");
+            client.Timeout = TimeSpan.FromSeconds(30);
+
+            client.DefaultRequestVersion = HttpVersion.Version20;
+            client.DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher;
+        }).AddTransientHttpErrorPolicy(policy =>
+        policy.CircuitBreakerAsync(
+            handledEventsAllowedBeforeBreaking: 5,
+            durationOfBreak: TimeSpan.FromSeconds(30)))
+        .AddTransientHttpErrorPolicy(polly =>
+            polly.WaitAndRetryAsync(3, retryCount =>
+            TimeSpan.FromSeconds(Math.Pow(2, retryCount))))
+        .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+        {
+            EnableMultipleHttp2Connections = true,
+
+            PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+            PooledConnectionIdleTimeout = TimeSpan.FromMinutes(5),
+
+            AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli,
+
+            MaxConnectionsPerServer = 10,
+            UseCookies = false,
+            AllowAutoRedirect = false,
         });
 
-        Console.WriteLine("Настрпойка сервиса api");
-        service2.AddHttpClient("ApiClient", apiclient =>
+        // Клиент для RSS
+        services.AddHttpClient("RssClient", client =>
         {
-            apiclient.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-            apiclient.DefaultRequestHeaders.Accept.ParseAdd("application/json");
-            apiclient.DefaultRequestHeaders.AcceptLanguage.ParseAdd("ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
-            apiclient.DefaultRequestHeaders.AcceptEncoding.ParseAdd("gzip, deflate, br");
-        }).AddTransientHttpErrorPolicy(polly =>
+            client.Timeout = TimeSpan.FromSeconds(60);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+            client.DefaultRequestHeaders.Accept.ParseAdd("application/xml, text/xml, */*");
+            client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
+            client.DefaultRequestHeaders.AcceptEncoding.ParseAdd("gzip, deflate, br");
+
+            client.DefaultRequestVersion = HttpVersion.Version20;
+            client.DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher;
+        }).AddTransientHttpErrorPolicy(policy =>
+        policy.CircuitBreakerAsync(
+            handledEventsAllowedBeforeBreaking: 5,
+            durationOfBreak: TimeSpan.FromSeconds(30)
+            ))
+        .AddTransientHttpErrorPolicy(polly =>
         polly.WaitAndRetryAsync(3, retryCount =>
-        TimeSpan.FromSeconds(Math.Pow(2, retryCount)))).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+        TimeSpan.FromSeconds(Math.Pow(2, retryCount))))
+        .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
         {
-            AutomaticDecompression = System.Net.DecompressionMethods.GZip |
-                            System.Net.DecompressionMethods.Deflate // ⭐ ВКЛЮЧАЕМ АВТОРАСПОКОВКУ Json файлов
+            EnableMultipleHttp2Connections = true,
+
+            PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+            PooledConnectionIdleTimeout = TimeSpan.FromMinutes(8),
+
+            MaxConnectionsPerServer = 10,
+            UseCookies = false,
+            AllowAutoRedirect = false
         });
 
-        service2.AddScoped<ApiRequests>();
-        service2.AddScoped<ParsedClass>();
+        // Резервный клиент для RSS
+        services.AddHttpClient("RssClientReserve", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(60);
+            client.DefaultRequestHeaders.Accept.ParseAdd("application/xml, text/xml, */*");
+            client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
 
+            client.DefaultRequestVersion = HttpVersion.Version20;
+            client.DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher;
+        }).AddTransientHttpErrorPolicy(policy =>
+          policy.CircuitBreakerAsync(
+            handledEventsAllowedBeforeBreaking: 5,
+            durationOfBreak: TimeSpan.FromSeconds(30)
+            ))
+        .AddTransientHttpErrorPolicy(polly =>
+            polly.WaitAndRetryAsync(3, retryCount =>
+            TimeSpan.FromSeconds(Math.Pow(2, retryCount))))
+        .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+        {
+            EnableMultipleHttp2Connections = true,
+
+            PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+            PooledConnectionIdleTimeout = TimeSpan.FromMinutes(8),
+
+            MaxConnectionsPerServer = 10,
+            UseCookies = false,
+            AllowAutoRedirect = false
+        });
+        
+    }
+
+    // Метод для получения временной зоны
+    public async Task<List<ModelTestApi>> GetTimeZoneAsync(string city)
+    {
         try
         {
-            Console.WriteLine("Вызываю метод запроса");
-            string Apikey = "818684b83cb44c9f87e6a189bf48bf83";
-            string url = $"https://api.ipgeolocation.io/timezone?apiKey={Apikey}&location=";
+            _logger.LogInformation("Запрос временной зоны для города: {City}", city);
 
-            using var scope = _serviceProvider.CreateScope();
-            var main = scope.ServiceProvider.GetRequiredService<ApiRequests>();
-            Stream result = await main.ApiRequesttss(url, city);
+            string apiKey = "818684b83cb44c9f87e6a189bf48bf83";
+            string url = $"https://api.ipgeolocation.io/timezone?apiKey={apiKey}&location=";
 
+            var result = await _apiRequests.CachingApiRequests(url, city);
 
-            using var scope1 = _serviceProvider.CreateScope();
-            var Reflect = scope1.ServiceProvider.GetRequiredService<ParsedClass>();
-            var resultt = await Reflect.ParsedApi(result);
-
-            if (resultt != null)
+            if (result != null)
             {
-                return new List<ModelTestApi> { resultt };
+                return new List<ModelTestApi> { result };
             }
-            else
-            { 
-                return new List<ModelTestApi>();
-            }
+
+            return new List<ModelTestApi>();
         }
         catch (Exception ex)
         {
-            Console.WriteLine("Ошибка" + ex.Message);
+            _logger.LogError(ex, "Ошибка при получении временной зоны для города {City}", city);
             return new List<ModelTestApi>();
         }
     }
 
-    public async Task<List<ModelClassRss>> Httprogram()
+
+    public async Task<List<ModelClassRss>> GetNewsAsync()
     {
-        var service = new ServiceCollection();
-        service.AddLogging(building =>
-        {
-            building.AddConsole();
-            building.SetMinimumLevel(LogLevel.Information);
-        });
-
-        //настроенный клиент под RSS
-        service.AddHttpClient("RssCLient", rssclient =>
-        {
-            rssclient.Timeout = TimeSpan.FromSeconds(60);
-            rssclient.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-            rssclient.DefaultRequestHeaders.Accept.ParseAdd("application/xml, text/xml, */*");
-            rssclient.DefaultRequestHeaders.AcceptLanguage.ParseAdd("ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
-            rssclient.DefaultRequestHeaders.AcceptEncoding.ParseAdd("gzip, deflate, br");
-        }).AddTransientHttpErrorPolicy(poly =>
-        poly.WaitAndRetryAsync(3, retry =>
-        TimeSpan.FromSeconds(Math.Pow(2, retry))));
-
-        service.AddHttpClient("RssClientReserve", rssclientreserve =>
-        {
-            rssclientreserve.Timeout = TimeSpan.FromSeconds(60);
-            rssclientreserve.DefaultRequestHeaders.Accept.ParseAdd("application/xml, text/xml, */*");
-            rssclientreserve.DefaultRequestHeaders.AcceptLanguage.ParseAdd("ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
-            rssclientreserve.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-        }).AddTransientHttpErrorPolicy(polly =>
-        polly.WaitAndRetryAsync(3, retry =>
-        TimeSpan.FromSeconds(Math.Pow(2, retry))));
-
-        //Добавление в DI
-        service.AddSingleton<RssRequests>();
-        service.AddScoped<ParsedClass>();
-        service.AddScoped<ApiRequests>();
-        service.AddScoped<RssRequestsReserve>();
-        service.AddMemoryCache();
-
-
-        //URL
         string url = "https://tass.com/rss/v2.xml";
-        string url3 = "https://www.interfax.ru/rss.asp";
-        //string url2 = "https://ipinfo.io/json";
+        string reserveUrl = "https://www.interfax.ru/rss.asp";
 
         try
         {
-            //Берем класс из DI и делаем запрос
-            using var scope = _serviceProvider.CreateScope();
-            var main = scope.ServiceProvider.GetRequiredService<RssRequests>();
-            var resultt = await main.CacheRequest(url);
+            _logger.LogInformation("Запрос новостей из основного источника");
 
+            var news = await _rssRequests.CacheRequest(url);
 
-            // выводим в консоль 
-            if (resultt != null)
+            if (news != null && news.Any())
             {
-                foreach (var item in resultt)
-                {
-                    //Console.WriteLine($"Title: {item.Title}");
-                    //Console.WriteLine($"Link: {item.Link}");
-                    ////Console.WriteLine($"Description: {item.Description}");
-                    //Console.WriteLine($"PublishDate: {item.PublisDate}");
-                    //Console.WriteLine($"ID: {item.ID}");
-                    //Console.WriteLine(new string('-', 40));
-                }
-                return resultt;
+                //foreach (var item in news)
+                //{
+                //    Console.WriteLine($"Title: {item.Title}");
+                //    Console.WriteLine($"Link: {item.Link}");
+                //    Console.WriteLine($"PublishDate: {item.PublisDate}");
+                //    Console.WriteLine($"ID: {item.ID}");
+                //    Console.WriteLine(new string('-', 40));
+                //}
+                return news;
+            }
+
+            // Если основные новости не получены, пробуем резервный источник
+            _logger.LogWarning("Основной источник недоступен, пробуем резервный");
+            var news2 = await GetReserveNewsAsync(reserveUrl);
+            return news2;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Ошибка при получении новостей, переходим на резервный источник");
+            var news2 = await GetReserveNewsAsync(reserveUrl);
+            return news2;
+        }
+    }
+
+    private async Task<List<ModelClassRss>> GetReserveNewsAsync(string url)
+    {
+        try
+        {
+            var reserveNews = await _rssRequestsReserve.ReserveRequestCache(url);
+
+            if (reserveNews != null && reserveNews.Any())
+            {
+                //foreach (var item in reserveNews)
+                //{
+                //    Console.WriteLine($"Title: {item.Title}");
+                //    Console.WriteLine($"Link: {item.Link}");
+                //    Console.WriteLine($"PublishDate: {item.PublisDate}");
+                //    Console.WriteLine($"ID: {item.ID}");
+                //    Console.WriteLine(new string('-', 40));
+                //}
+                return reserveNews;
             }
             else
             {
-                Console.WriteLine("Результат пустой");
+                _logger.LogWarning("Резервный источник тоже не вернул данных");
                 return new List<ModelClassRss>();
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine("Возникло исключение" + ex.Message + "Перехожу на резервный источник");
-            using var scope = _serviceProvider.CreateScope();
-            var reserve = scope.ServiceProvider.GetRequiredService<RssRequestsReserve>();
-            var resultats = await reserve.ReserveRequestCache(url);
-
-
-            if (resultats != null)
-            {
-                foreach (var item in resultats)
-                {
-                    Console.WriteLine($"Title: {item.Title}");
-                    Console.WriteLine($"Link: {item.Link}");
-                    //Console.WriteLine($"Description: {item.Description}");
-                    Console.WriteLine($"PublishDate: {item.PublisDate}");
-                    Console.WriteLine($"ID: {item.ID}");
-                    Console.WriteLine(new string('-', 40));
-                }
-                return resultats;
-            }
-            else
-            {
-                Console.WriteLine("Результат пустой");
-                return new List<ModelClassRss>();
-            }
+            _logger.LogError(ex, "Ошибка при получении новостей из резервного источника");
+            return new List<ModelClassRss>();
         }
     }
 }
