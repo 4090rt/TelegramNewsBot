@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Text;
 using System.Threading.Tasks;
 using Telegram.Bot.Exceptions;
@@ -62,14 +63,22 @@ namespace TelegramNewsBot.RequestAndParcing.RequestBse
 
 
 
-        public async Task<List<ModelClassRss>> Request(string URL)
+        public async Task<List<ModelClassRss>> Request(string URL, CancellationToken cancellation = default)
         {
             try
             {
-              var client =  _factory.CreateClient("RssCLient");
-                _logger.LogInformation("Делаю запрос");
+                var client = _factory.CreateClient("RssCLient");
 
-                HttpResponseMessage response = await client.GetAsync(URL).ConfigureAwait(false);
+                var options = new HttpRequestMessage(HttpMethod.Get, URL)
+                {
+                    Version = HttpVersion.Version20,
+                    VersionPolicy = HttpVersionPolicy.RequestVersionOrHigher
+                };
+
+                _logger.LogInformation("Делаю запрос");
+                var timer = System.Diagnostics.Stopwatch.StartNew();    
+                HttpResponseMessage response = await client.SendAsync(options, cancellation).ConfigureAwait(false);
+                timer.Stop();
                 _logger.LogInformation($"Запрос завершен статус код: {response.StatusCode}");
                 if (response.IsSuccessStatusCode)
                 {
@@ -78,7 +87,7 @@ namespace TelegramNewsBot.RequestAndParcing.RequestBse
                         try
                         {
                             _logger.LogInformation("Читаю ответ");
-                            var content = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+                            await using var content = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
                             _logger.LogInformation("Ответ прочитан");
 
                             _logger.LogInformation("Начинаю парсинг");
@@ -106,7 +115,12 @@ namespace TelegramNewsBot.RequestAndParcing.RequestBse
                     return new List<ModelClassRss>();
                 }
             }
-            catch (TaskCanceledException ex)
+            catch (TaskCanceledException ex) when (cancellation.IsCancellationRequested)
+            {
+                _logger.LogError("Запрос отменен пользователем" + ex.Message, ex.StackTrace);
+                return new List<ModelClassRss>();
+            }
+            catch (TaskCanceledException ex) when (!cancellation.IsCancellationRequested)
             {
                 _logger.LogError("Запрос отменен" + ex.Message, ex.StackTrace);
                 return new List<ModelClassRss>();

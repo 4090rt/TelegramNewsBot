@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Text;
 using System.Threading.Tasks;
 using Telegram.Bot.Exceptions;
@@ -59,13 +60,20 @@ namespace TelegramNewsBot.RequestAndParcing.RequestBse
             }
         }
 
-        public async Task<List<ModelClassRss>> ReserveRequest(string url)
+        public async Task<List<ModelClassRss>> ReserveRequest(string url, CancellationToken cancellation = default)
         {
             try
             {
                 var client = _httpClientFactory.CreateClient("RssClientReserv");
+
+                var options = new HttpRequestMessage(HttpMethod.Get, url)
+                {
+                    Version = HttpVersion.Version20,
+                    VersionPolicy = HttpVersionPolicy.RequestVersionOrHigher
+                };
+
                 _logger.LogInformation("Начинаю запрос");
-                HttpResponseMessage respon = await client.GetAsync(url).ConfigureAwait(false);
+                HttpResponseMessage respon = await client.SendAsync(options, cancellation).ConfigureAwait(false);
                 _logger.LogInformation($"Запрос завершен статус код: {respon.StatusCode}");
                 if (respon.IsSuccessStatusCode)
                 {
@@ -74,7 +82,7 @@ namespace TelegramNewsBot.RequestAndParcing.RequestBse
                         try
                         {
                             _logger.LogInformation("Читаю ответ");
-                            var content = await respon.Content.ReadAsStreamAsync().ConfigureAwait(false);
+                            await using var content = await respon.Content.ReadAsStreamAsync().ConfigureAwait(false);
                             _logger.LogInformation("Ответ прочитан");
 
                             _logger.LogInformation("Начинаю парсинг");
@@ -102,7 +110,12 @@ namespace TelegramNewsBot.RequestAndParcing.RequestBse
                     return new List<ModelClassRss>();
                 }
             }
-            catch (TaskCanceledException ex)
+            catch (TaskCanceledException ex) when (cancellation.IsCancellationRequested)
+            {
+                _logger.LogError("Опаерация отменена пользователем" + ex.Message + ex.StackTrace);
+                return new List<ModelClassRss>();
+            }
+            catch (TaskCanceledException ex) when (!cancellation.IsCancellationRequested)
             {
                 _logger.LogError("Опаерация отменена" + ex.Message  + ex.StackTrace);
                 return new List<ModelClassRss>();
