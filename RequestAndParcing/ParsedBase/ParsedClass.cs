@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using System.IO;
 using System.Linq;
 using System.Net.Security;
 using System.Reflection;
@@ -59,6 +60,62 @@ namespace TelegramNewsBot.RequestAndParcing.ParsedBase
             {
                 _logger.LogError("Возниклои исключение при парсинге ленты" + ex.Message);
                 return null;
+            }
+        }
+
+        public async Task<ModelCrypto> PaedesCrypto(Stream json)
+        {
+            try
+            {
+                using var rerader = new StreamReader(json);
+                var readertoend = await rerader.ReadToEndAsync();
+
+                var options = new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true,
+                };
+
+                var deserialize = JsonSerializer.Deserialize<ModelCrypto>(readertoend);
+
+                if (deserialize != null)
+                {
+                    Console.WriteLine($"BitCoin: {deserialize.bitcoin.rub}");
+                    Console.WriteLine($"Ethereum: {deserialize.ethereum.rub}");
+                    Console.WriteLine($"Tether: {deserialize.tether.rub}");
+                }
+                return deserialize;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogInformation("Возникло исключение" + ex.Message + ex.StackTrace);
+                return new ModelCrypto();
+            }
+        }
+
+        public async Task<ModelValute> ParsedValute(Stream stream)
+        {
+            try
+            {
+                using var reader = new StreamReader(stream);
+                var readtoend = await reader.ReadToEndAsync();
+
+                var options = new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                };
+
+                var result = JsonSerializer.Deserialize<ModelValute>(readtoend);
+
+                if (result != null)
+                {
+                    Console.WriteLine($"BitCoin: {result.BaseCode}");
+                }
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogInformation("Возникло исключение" + ex.Message + ex.StackTrace);
+                return new ModelValute();
             }
         }
 
