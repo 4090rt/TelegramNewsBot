@@ -32,14 +32,16 @@ namespace TelegramNewsBot.TelegramBotSet.CommandHendler
         private readonly ApiRequests _apiRequests;
         private readonly ParsedClass _parsedClass;
         private readonly Program _program;
-  
+        private readonly CryptoApiCourse _cryptoApiCourse;
+        private readonly ValuteCourseRequest _valute;
 
 
         public CommandHendler(ITelegramBotClient botClient, IOptions<BotConfigModel> config, ILogger<CommandHendler> logger, IServiceProvider serviceProvider, RssRequestsReserve rssRequestsReserve,
         ApiRequests apiRequests,
         ParsedClass parsedClass,
         RssRequests rssRequests,
-        Program program)
+        Program program,
+        CryptoApiCourse cryptoApiCourse, ValuteCourseRequest valute)
         {
             _botClient = botClient;
             _botConfig = config.Value;
@@ -52,6 +54,8 @@ namespace TelegramNewsBot.TelegramBotSet.CommandHendler
             _parsedClass = parsedClass;
             _logger = logger;
             _program = program;
+            _cryptoApiCourse = cryptoApiCourse;
+            _valute = valute;
         }
 
         // метод обработки команд
@@ -102,7 +106,7 @@ namespace TelegramNewsBot.TelegramBotSet.CommandHendler
             if (messagetrimed.StartsWith("/"))
             {
                 // вызов команды обработки команды
-                Commands.Commands commands = new(_botClient, _botConfig, _logger, _serviceProvider, _rssRequestsReserve, _apiRequests, _parsedClass, _rssRequests, _program);
+                Commands.Commands commands = new(_botClient, _botConfig, _logger, _serviceProvider, _rssRequestsReserve, _apiRequests, _parsedClass, _rssRequests, _program, _cryptoApiCourse, _valute);
                 await commands.FabricCommand(chaid, messagetrimed, cancellation, username);
                 return;
             }
@@ -155,12 +159,16 @@ namespace TelegramNewsBot.TelegramBotSet.CommandHendler
             switch (callbackData)
             {
                 case "/MainCommands":
-                    Commands.Commands com = new Commands.Commands(_botClient,_botConfig, _logger, _serviceProvider, _rssRequestsReserve, _apiRequests, _parsedClass, _rssRequests, _program);
+                    Commands.Commands com = new Commands.Commands(_botClient,_botConfig, _logger, _serviceProvider, _rssRequestsReserve, _apiRequests, _parsedClass, _rssRequests, _program, _cryptoApiCourse, _valute);
                     await com.MainCommand(chatid,cancellation);
                     break;
                 case "/weather":
-                    Commands.Commands com2 = new Commands.Commands(_botClient, _botConfig, _logger, _serviceProvider, _rssRequestsReserve, _apiRequests, _parsedClass, _rssRequests, _program);
+                    Commands.Commands com2 = new Commands.Commands(_botClient, _botConfig, _logger, _serviceProvider, _rssRequestsReserve, _apiRequests, _parsedClass, _rssRequests, _program, _cryptoApiCourse, _valute);
                     await com2.WeatherCommand(chatid,cancellation); 
+                    break;
+                case "/cource":
+                    Commands.Commands com3 = new Commands.Commands(_botClient, _botConfig, _logger, _serviceProvider, _rssRequestsReserve, _apiRequests, _parsedClass, _rssRequests, _program, _cryptoApiCourse, _valute);
+                    await com3.Cource(chatid, cancellation);
                     break;
             }
         }
