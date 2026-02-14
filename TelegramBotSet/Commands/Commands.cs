@@ -5,8 +5,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Telegram.Bot;
+using Telegram.Bot.Types;
 using Telegram.Bots.Types;
 using TelegramNewsBot.DataBase;
 using TelegramNewsBot.RequestAndParcing.ModelBse;
@@ -29,10 +31,12 @@ namespace TelegramNewsBot.TelegramBotSet.Commands
         private readonly ApiRequests _apiRequests;
         private readonly ParsedClass _parsedClass;
         private readonly Program _program;
+        private readonly CryptoApiCourse _modelCrypto;
+        private readonly ValuteCourseRequest _valute;
         
         public Commands(ITelegramBotClient botClient, BotConfigModel config, Microsoft.Extensions.Logging.ILogger logger, IServiceProvider serviceProvider, RssRequestsReserve rssRequestsReserve,
         ApiRequests apiRequests,
-        ParsedClass parsedClass, RssRequests rssRequests, Program program)
+        ParsedClass parsedClass, RssRequests rssRequests, Program program, CryptoApiCourse modelcrypto, ValuteCourseRequest valute)
         {
             _botClient = botClient;
             _botConfig = config;
@@ -45,6 +49,8 @@ namespace TelegramNewsBot.TelegramBotSet.Commands
             _parsedClass = parsedClass;
             _logger = logger;
             _program = program;
+            _modelCrypto = modelcrypto;
+            _valute = valute;
         }
 
         public async Task FabricCommand(long chatId, string command, CancellationToken cancellationToken, string username)
@@ -105,6 +111,16 @@ namespace TelegramNewsBot.TelegramBotSet.Commands
                     text: "Выполняю",
                     cancellationToken: cancellationToken
                     );
+                    break;
+                case "/cource":
+                    string log1 = "Вызов команды /Cource ";
+                    string loguser1 = username;
+                    DateTime date1 = DateTime.UtcNow;
+                    _logger.LogInformation(log1);
+                    DbSaveCommands save1 = new DbSaveCommands(_logger);
+                    await save1.Addcommands(log1, loguser1, date1.ToString());
+
+                    await Cource(chatId, cancellationToken);
                     break;
             }
         }
@@ -171,6 +187,67 @@ namespace TelegramNewsBot.TelegramBotSet.Commands
                     text: "Введите название вашего города c !перед названием города",
                     cancellationToken: cancellationToken
                 );
+        }
+
+        public async Task Cource(long chatid, CancellationToken cancellation = default)
+        {
+            try
+            {
+                string url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,tether&vs_currencies=rub";
+                string Apikey = "cf64a04e84d8235680fdfa09";
+
+                string[] baseCurrencies = { "USD", "EUR" };
+                string[] targetCurrencies = { "RUB" };
+                Dictionary<string, ModelValute> results = new Dictionary<string, ModelValute>();
+
+                foreach (string currency in baseCurrencies)
+                {
+                    string URL1 = $"https://v6.exchangerate-api.com/v6/{Apikey}/latest/{currency}";
+                    var result  = await _valute.CachingRequest(URL1, cancellation);
+                    if (result != null)
+                    {
+                        results[currency] = result; 
+                    }
+                }
+                ModelCrypto result1 = await _modelCrypto.CacheRequest(url, cancellation);
+                if (result1 != null && results != null)
+                {
+                    string message = $@"💰 *КРИПТОВАЛЮТЫ К РУБЛЮ* 💰
+
+                    ₿ Bitcoin  ➜ {result1.bitcoin.rub:N0} ₽
+                  Ξ Ethereum ➜ {result1.ethereum.rub:N0} ₽
+                    ₮ Tether   ➜ {result1.tether.rub:N2} ₽
+
+                    💱 *КУРСЫ ВАЛЮТ* 💱
+
+                    🇺🇸 USD  ➜ {results["USD"].ConversionRates["RUB"]:F2} ₽
+                    🇪🇺 EUR  ➜ {results["EUR"].ConversionRates["RUB"]:F2} ₽
+
+                    📊 {DateTime.Now:dd.MM.yyyy HH:mm}";
+                    await _botClient.SendTextMessageAsync
+                      (
+                          chatId: chatid,
+                          text: $"💰 *КРИПТОВАЛЮТЫ К РУБЛЮ* 💰\n\n   \u20bf Bitcoin  ➜ {result1.bitcoin.rub:N0} ₽\n   Ξ Ethereum ➜ {result1.ethereum.rub:N0} ₽\n   ₮ Tether   ➜ {result1.tether.rub:N2} ₽\n \n " +
+                          $"💱 *КУРСЫ ВАЛЮТ* 💱:\n   🇺🇸 USD  ➜ {results["USD"].ConversionRates["RUB"]:F2} ₽\n   🇪🇺 EUR  ➜ {results["EUR"].ConversionRates["RUB"]:F2} ₽\n \n" +
+                          $"Обновлено: 📊 {DateTime.Now:dd.MM.yyyy HH:mm}",
+                          cancellationToken: cancellation
+                      );
+                }
+                else
+                {
+                    await _botClient.SendTextMessageAsync
+                      (
+                          chatId: chatid,
+                          text: $"Курс валют не удалось обновить... Чиним...",
+                          cancellationToken: cancellation
+                      );
+                }
+            }
+            catch(Exception ex)
+            {
+                _logger.LogError("Возникло исключение" + ex.Message + ex.StackTrace);
+                return;
+            }
         }
     }
 }
