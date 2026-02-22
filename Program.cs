@@ -131,6 +131,11 @@ public class Program
                 services.AddScoped<RssRequestsReserve>();
                 services.AddScoped<ApiRequests>();
                 services.AddScoped<ParsedClass>();
+                services.AddScoped<ModelCrypto>();
+                services.AddScoped<CryptoApiCourse>();
+                services.AddScoped<ModelValute>();
+                services.AddScoped<ValuteCourseRequest>();
+                services.AddScoped<RequestFromStream>();
 
                 // Добавляем кэширование (одна инстанция на всё приложение)
                 services.AddMemoryCache();
@@ -159,17 +164,33 @@ public class Program
             client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
             client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
             client.DefaultRequestHeaders.AcceptEncoding.ParseAdd("gzip, deflate, br");
-            client.Timeout = TimeSpan.FromSeconds(30);
 
             client.DefaultRequestVersion = HttpVersion.Version20;
             client.DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher;
         }).AddTransientHttpErrorPolicy(policy =>
         policy.CircuitBreakerAsync(
             handledEventsAllowedBeforeBreaking: 5,
-            durationOfBreak: TimeSpan.FromSeconds(30)))
+            durationOfBreak: TimeSpan.FromSeconds(30),
+            onBreak: (outcome, timespan) =>
+            {
+                Console.WriteLine($"🔌 Circuit opened for {timespan}");
+            },
+            onHalfOpen: () =>
+            {
+                Console.WriteLine("⚠️ Circuit half-open");
+            },
+            onReset: () =>
+            {
+            }))
         .AddTransientHttpErrorPolicy(polly =>
             polly.WaitAndRetryAsync(3, retryCount =>
-            TimeSpan.FromSeconds(Math.Pow(2, retryCount))))
+            TimeSpan.FromSeconds(Math.Pow(2, retryCount)) +
+            TimeSpan.FromMicroseconds(Random.Shared.Next(0, 100)),
+            onRetryAsync: (outcome, timespan, retryCount, task) =>
+            {
+                Console.WriteLine($"⏰ Request timed out after {timespan}");
+                return Task.CompletedTask;
+            }))
         .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
         {
             EnableMultipleHttp2Connections = true,
@@ -182,12 +203,19 @@ public class Program
             MaxConnectionsPerServer = 10,
             UseCookies = false,
             AllowAutoRedirect = false,
-        });
+        })
+        .AddPolicyHandler(Policy.TimeoutAsync<HttpResponseMessage>(
+            TimeSpan.FromSeconds(10),
+            Polly.Timeout.TimeoutStrategy.Pessimistic,
+            onTimeoutAsync: (context, timespan, task) =>
+            {
+                Console.WriteLine($"⏰ Request timed out after {timespan}");
+                return Task.CompletedTask;
+            }));
 
         // Клиент для RSS
         services.AddHttpClient("RssClient", client =>
         {
-            client.Timeout = TimeSpan.FromSeconds(60);
             client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
             client.DefaultRequestHeaders.Accept.ParseAdd("application/xml, text/xml, */*");
             client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
@@ -198,11 +226,27 @@ public class Program
         }).AddTransientHttpErrorPolicy(policy =>
         policy.CircuitBreakerAsync(
             handledEventsAllowedBeforeBreaking: 5,
-            durationOfBreak: TimeSpan.FromSeconds(30)
-            ))
+            durationOfBreak: TimeSpan.FromSeconds(30),
+            onBreak: (outcome, timespan) =>
+            {
+                Console.WriteLine($"🔌 Circuit opened for {timespan}");
+            },
+            onHalfOpen: () =>
+            {
+                Console.WriteLine("⚠️ Circuit half-open");
+            },
+            onReset: () =>
+            {
+                Console.WriteLine("✅ Circuit reset");
+            }))
         .AddTransientHttpErrorPolicy(polly =>
         polly.WaitAndRetryAsync(3, retryCount =>
-        TimeSpan.FromSeconds(Math.Pow(2, retryCount))))
+        TimeSpan.FromSeconds(Math.Pow(2, retryCount)) +
+        TimeSpan.FromMilliseconds(Random.Shared.Next(0, 100)),
+        onRetry: (outcome, timespan, retrycount, context) =>
+        {
+            Console.WriteLine($"🔄 Retry {retrycount} after {timespan}");
+        }))
         .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
         {
             EnableMultipleHttp2Connections = true,
@@ -213,8 +257,14 @@ public class Program
             MaxConnectionsPerServer = 10,
             UseCookies = false,
             AllowAutoRedirect = false
-        });
-
+        }).AddPolicyHandler(Policy.TimeoutAsync<HttpResponseMessage>(
+            TimeSpan.FromSeconds(10),
+            Polly.Timeout.TimeoutStrategy.Pessimistic,
+            onTimeoutAsync: (outcome, timespan, task) =>
+            {
+                Console.WriteLine($"⏰ Timeout after {timespan}");
+                return Task.CompletedTask;
+            }));
         // Резервный клиент для RSS
         services.AddHttpClient("RssClientReserve", client =>
         {
@@ -222,6 +272,7 @@ public class Program
             client.DefaultRequestHeaders.Accept.ParseAdd("application/xml, text/xml, */*");
             client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
             client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+            client.DefaultRequestHeaders.AcceptEncoding.ParseAdd("gzip, deflate, br");
 
             client.DefaultRequestVersion = HttpVersion.Version20;
             client.DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher;
@@ -244,7 +295,174 @@ public class Program
             UseCookies = false,
             AllowAutoRedirect = false
         });
-        
+
+        services.AddHttpClient("Http2StreamClient", clientstream =>
+        {
+            clientstream.Timeout = TimeSpan.FromSeconds(60);
+            clientstream.DefaultRequestHeaders.Accept.ParseAdd("application/xml, text/xml, */*");
+            clientstream.DefaultRequestHeaders.AcceptLanguage.ParseAdd("ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
+            clientstream.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+            clientstream.DefaultRequestHeaders.AcceptEncoding.ParseAdd("gzip, deflate, br");
+
+            clientstream.DefaultRequestVersion = HttpVersion.Version20;
+            clientstream.DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher;
+        }).AddTransientHttpErrorPolicy(policy =>
+        policy.CircuitBreakerAsync(
+            handledEventsAllowedBeforeBreaking: 5,
+            durationOfBreak: TimeSpan.FromSeconds(30),
+            onBreak: (outcome, timespan) =>
+            {
+                Console.WriteLine($"🔌 Circuit opened for {timespan}");
+            },
+            onReset: () =>
+            {
+                Console.WriteLine("✅ Circuit reset");
+            },
+            onHalfOpen: () =>
+            {
+                Console.WriteLine("⚠️ Circuit half-open");
+            }))
+        .AddTransientHttpErrorPolicy(polly =>
+        polly.WaitAndRetryAsync(3, retrycount =>
+        TimeSpan.FromSeconds(Math.Pow(2, retrycount))
+        + TimeSpan.FromMilliseconds(Random.Shared.Next(0, 100)),
+        onRetry: (outcome, timespan, retrycount, context) =>
+        {
+            Console.WriteLine($"🔄 Retry {retrycount} after {timespan}");
+        }))
+        .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+        {
+            EnableMultipleHttp2Connections = true,
+            KeepAlivePingPolicy = HttpKeepAlivePingPolicy.Always,
+            KeepAlivePingDelay = TimeSpan.FromSeconds(15),
+            KeepAlivePingTimeout = TimeSpan.FromSeconds(15),
+
+            PooledConnectionIdleTimeout = TimeSpan.FromMinutes(10),
+            PooledConnectionLifetime = TimeSpan.FromHours(1),
+
+            MaxConnectionsPerServer = 10,
+            UseCookies = false,
+            AllowAutoRedirect = false
+        })
+        .AddPolicyHandler(Policy.TimeoutAsync<HttpResponseMessage>(
+            TimeSpan.FromSeconds(10),
+            Polly.Timeout.TimeoutStrategy.Pessimistic,
+            onTimeoutAsync: (outcome, timespan, task) =>
+            {
+                Console.WriteLine($"⏰ Timeout after {timespan}");
+                return Task.CompletedTask;
+            }));
+
+        services.AddHttpClient("CryptoApyCourse", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(60);
+            client.DefaultRequestHeaders.Accept.ParseAdd("application/xml, text/xml, */*");
+            client.DefaultRequestHeaders.AcceptEncoding.ParseAdd("gzip, deflate, br");
+            client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+
+            client.DefaultRequestVersion = HttpVersion.Version20;
+            client.DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher;
+        }).AddTransientHttpErrorPolicy(policy =>
+        policy.CircuitBreakerAsync(
+            handledEventsAllowedBeforeBreaking: 5,
+            durationOfBreak: TimeSpan.FromSeconds(30),
+            onBreak: (outcome, timespan) =>
+            {
+                Console.WriteLine($"🔌 Circuit opened for {timespan}");
+            },
+            onReset: () =>
+            {
+                Console.WriteLine("✅ Circuit reset");
+            },
+            onHalfOpen: () =>
+            {
+                Console.WriteLine("⚠️ Circuit half-open");
+            }))
+        .AddTransientHttpErrorPolicy(polly =>
+        polly.WaitAndRetryAsync(3, retrycount =>
+        TimeSpan.FromSeconds(Math.Pow(2, retrycount))
+        + TimeSpan.FromMilliseconds(Random.Shared.Next(0, 100)),
+        onRetry: (outcome, timespan, retrucount, context) =>
+        {
+            Console.WriteLine($"🔄 Retry {retrucount} after {timespan}");
+        }))
+        .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+        {
+            EnableMultipleHttp2Connections = true,
+
+            PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+            PooledConnectionIdleTimeout = TimeSpan.FromMinutes(8),
+
+            AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli,
+
+            MaxConnectionsPerServer = 10,
+            UseCookies = false,
+            AllowAutoRedirect = false
+        }).AddPolicyHandler(Policy.TimeoutAsync<HttpResponseMessage>(
+            TimeSpan.FromSeconds(10),
+            Polly.Timeout.TimeoutStrategy.Pessimistic,
+            onTimeoutAsync: (onecome, timespan, task) =>
+            {
+                Console.WriteLine($"⏰ Timeout after {timespan}");
+                return Task.CompletedTask;
+            }));
+
+        services.AddHttpClient("ValuteCourse", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(60);
+            client.DefaultRequestHeaders.Accept.ParseAdd("application/xml, text/xml, */*");
+            client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
+            client.DefaultRequestHeaders.AcceptEncoding.ParseAdd("gzip, deflate, br");
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+
+            client.DefaultRequestVersion = HttpVersion.Version20;
+            client.DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher;
+        }).AddTransientHttpErrorPolicy(policy =>
+        policy.CircuitBreakerAsync(
+            handledEventsAllowedBeforeBreaking: 5,
+            durationOfBreak: TimeSpan.FromSeconds(30),
+            onBreak: (outcome, timespan) =>
+            {
+                Console.WriteLine($"🔌 Circuit opened for {timespan}");
+            },
+            onReset: () =>
+            {
+                Console.WriteLine("✅ Circuit reset");
+            },
+            onHalfOpen: () =>
+            {
+                Console.WriteLine("⚠️ Circuit half-open");
+            }))
+        .AddTransientHttpErrorPolicy(polly =>
+        polly.WaitAndRetryAsync(3, retrycount =>
+        TimeSpan.FromSeconds(Math.Pow(2, retrycount))
+        + TimeSpan.FromMilliseconds(Random.Shared.Next(0, 100)),
+        onRetry: (outcome, timespan, retrucount, context) =>
+        {
+            Console.WriteLine($"🔄 Retry {retrucount} after {timespan}");
+        }))
+        .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+        {
+            EnableMultipleHttp2Connections = true,
+
+            PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+            PooledConnectionIdleTimeout = TimeSpan.FromMinutes(8),
+
+            AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli,
+
+            MaxConnectionsPerServer = 10,
+            UseCookies = false,
+            AllowAutoRedirect = false
+        })
+        .AddPolicyHandler(Policy.TimeoutAsync<HttpResponseMessage>(
+            TimeSpan.FromSeconds(10),
+            Polly.Timeout.TimeoutStrategy.Pessimistic,
+            onTimeoutAsync: (onecome, timespan, task) =>
+            {
+                Console.WriteLine($"⏰ Timeout after {timespan}");
+                return Task.CompletedTask;
+            }));
     }
 
     // Метод для получения временной зоны
@@ -277,7 +495,7 @@ public class Program
     public async Task<List<ModelClassRss>> GetNewsAsync()
     {
         string url = "https://tass.com/rss/v2.xml";
-        string reserveUrl = "https://www.interfax.ru/rss.asp";
+        string reserveUrl = "https://tass.com/rss/v2.xm";
 
         try
         {
