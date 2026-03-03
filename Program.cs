@@ -16,6 +16,7 @@ using System.Security.Cryptography;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bots.Configs;
+using TelegramNewsBot;
 using TelegramNewsBot.RequestAndParcing.ModelBse;
 using TelegramNewsBot.RequestAndParcing.ParsedBase;
 using TelegramNewsBot.RequestAndParcing.RequestBse;
@@ -33,6 +34,7 @@ public class Program
     private readonly ParsedClass _parsedClass;
     private readonly ILogger<Program> _logger;
     private readonly IMemoryCache _memoryCache;
+    private readonly ClientOptions _clientOptions;
 
     public Program(
         RssRequests rssRequests,
@@ -41,13 +43,15 @@ public class Program
         ApiRequests apiRequests,
         ParsedClass parsedClass,
         ILogger<Program> logger,
-        IMemoryCache memoryCache)  // Добавили кэш
+        IMemoryCache memoryCache,
+        ClientOptions clientOptions)  // Добавили кэш
     {
         _rssRequests = rssRequests;
         _rssRequestsReserve = rssRequestsReserve;
         _apiRequests = apiRequests;
         _parsedClass = parsedClass;
         _logger = logger;
+        _clientOptions = clientOptions;
         _serviceProvider = serviceProvider;
         _memoryCache = memoryCache;
     }
@@ -157,144 +161,151 @@ public class Program
 
     private static void ConfigureHttpClients(IServiceCollection services)
     {
-        // Клиент для API
-        services.AddHttpClient("ApiClient", client =>
-        {
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-            client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
-            client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
-            client.DefaultRequestHeaders.AcceptEncoding.ParseAdd("gzip, deflate, br");
+        //// Клиент для API
+        //services.AddHttpClient("ApiClient", client =>
+        //{
+        //    client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+        //    client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+        //    client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
+        //    client.DefaultRequestHeaders.AcceptEncoding.ParseAdd("gzip, deflate, br");
 
-            client.DefaultRequestVersion = HttpVersion.Version20;
-            client.DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher;
-        }).AddTransientHttpErrorPolicy(policy =>
-        policy.CircuitBreakerAsync(
-            handledEventsAllowedBeforeBreaking: 5,
-            durationOfBreak: TimeSpan.FromSeconds(30),
-            onBreak: (outcome, timespan) =>
-            {
-                Console.WriteLine($"🔌 Circuit opened for {timespan}");
-            },
-            onHalfOpen: () =>
-            {
-                Console.WriteLine("⚠️ Circuit half-open");
-            },
-            onReset: () =>
-            {
-            }))
-        .AddTransientHttpErrorPolicy(polly =>
-            polly.WaitAndRetryAsync(3, retryCount =>
-            TimeSpan.FromSeconds(Math.Pow(2, retryCount)) +
-            TimeSpan.FromMicroseconds(Random.Shared.Next(0, 100)),
-            onRetryAsync: (outcome, timespan, retryCount, task) =>
-            {
-                Console.WriteLine($"⏰ Request timed out after {timespan}");
-                return Task.CompletedTask;
-            }))
-        .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
-        {
-            EnableMultipleHttp2Connections = true,
+        //    client.DefaultRequestVersion = HttpVersion.Version20;
+        //    client.DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher;
+        //}).AddTransientHttpErrorPolicy(policy =>
+        //policy.CircuitBreakerAsync(
+        //    handledEventsAllowedBeforeBreaking: 5,
+        //    durationOfBreak: TimeSpan.FromSeconds(30),
+        //    onBreak: (outcome, timespan) =>
+        //    {
+        //        Console.WriteLine($"🔌 Circuit opened for {timespan}");
+        //    },
+        //    onHalfOpen: () =>
+        //    {
+        //        Console.WriteLine("⚠️ Circuit half-open");
+        //    },
+        //    onReset: () =>
+        //    {
+        //        Console.WriteLine("✅ Circuit reset");
+        //    }))
+        //.AddTransientHttpErrorPolicy(polly =>
+        //    polly.WaitAndRetryAsync(3, retryCount =>
+        //    TimeSpan.FromSeconds(Math.Pow(2, retryCount)) +
+        //    TimeSpan.FromMicroseconds(Random.Shared.Next(0, 100)),
+        //    onRetryAsync: (outcome, timespan, retryCount, task) =>
+        //    {
+        //        Console.WriteLine($"⏰ Request timed out after {timespan}");
+        //        return Task.CompletedTask;
+        //    }))
+        //.ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+        //{
+        //    EnableMultipleHttp2Connections = true,
 
-            PooledConnectionLifetime = TimeSpan.FromMinutes(10),
-            PooledConnectionIdleTimeout = TimeSpan.FromMinutes(5),
+        //    PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+        //    PooledConnectionIdleTimeout = TimeSpan.FromMinutes(5),
 
-            AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli,
+        //    AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli,
 
-            MaxConnectionsPerServer = 10,
-            UseCookies = false,
-            AllowAutoRedirect = false,
-        })
-        .AddPolicyHandler(Policy.TimeoutAsync<HttpResponseMessage>(
-            TimeSpan.FromSeconds(10),
-            Polly.Timeout.TimeoutStrategy.Pessimistic,
-            onTimeoutAsync: (context, timespan, task) =>
-            {
-                Console.WriteLine($"⏰ Request timed out after {timespan}");
-                return Task.CompletedTask;
-            }));
+        //    MaxConnectionsPerServer = 10,
+        //    UseCookies = false,
+        //    AllowAutoRedirect = false,
+        //})
+        //.AddPolicyHandler(Policy.TimeoutAsync<HttpResponseMessage>(
+        //    TimeSpan.FromSeconds(10),
+        //    Polly.Timeout.TimeoutStrategy.Pessimistic,
+        //    onTimeoutAsync: (context, timespan, task) =>
+        //    {
+        //        Console.WriteLine($"⏰ Request timed out after {timespan}");
+        //        return Task.CompletedTask;
+        //    }));
 
-        // Клиент для RSS
-        services.AddHttpClient("RssClient", client =>
-        {
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-            client.DefaultRequestHeaders.Accept.ParseAdd("application/xml, text/xml, */*");
-            client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
-            client.DefaultRequestHeaders.AcceptEncoding.ParseAdd("gzip, deflate, br");
+        //// Клиент для RSS
+        //services.AddHttpClient("RssClient", client =>
+        //{
+        //    client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+        //    client.DefaultRequestHeaders.Accept.ParseAdd("application/xml, text/xml, */*");
+        //    client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
+        //    client.DefaultRequestHeaders.AcceptEncoding.ParseAdd("gzip, deflate, br");
 
-            client.DefaultRequestVersion = HttpVersion.Version20;
-            client.DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher;
-        }).AddTransientHttpErrorPolicy(policy =>
-        policy.CircuitBreakerAsync(
-            handledEventsAllowedBeforeBreaking: 5,
-            durationOfBreak: TimeSpan.FromSeconds(30),
-            onBreak: (outcome, timespan) =>
-            {
-                Console.WriteLine($"🔌 Circuit opened for {timespan}");
-            },
-            onHalfOpen: () =>
-            {
-                Console.WriteLine("⚠️ Circuit half-open");
-            },
-            onReset: () =>
-            {
-                Console.WriteLine("✅ Circuit reset");
-            }))
-        .AddTransientHttpErrorPolicy(polly =>
-        polly.WaitAndRetryAsync(3, retryCount =>
-        TimeSpan.FromSeconds(Math.Pow(2, retryCount)) +
-        TimeSpan.FromMilliseconds(Random.Shared.Next(0, 100)),
-        onRetry: (outcome, timespan, retrycount, context) =>
-        {
-            Console.WriteLine($"🔄 Retry {retrycount} after {timespan}");
-        }))
-        .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
-        {
-            EnableMultipleHttp2Connections = true,
+        //    client.DefaultRequestVersion = HttpVersion.Version20;
+        //    client.DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher;
+        //}).AddTransientHttpErrorPolicy(policy =>
+        //policy.CircuitBreakerAsync(
+        //    handledEventsAllowedBeforeBreaking: 5,
+        //    durationOfBreak: TimeSpan.FromSeconds(30),
+        //    onBreak: (outcome, timespan) =>
+        //    {
+        //        Console.WriteLine($"🔌 Circuit opened for {timespan}");
+        //    },
+        //    onHalfOpen: () =>
+        //    {
+        //        Console.WriteLine("⚠️ Circuit half-open");
+        //    },
+        //    onReset: () =>
+        //    {
+        //        Console.WriteLine("✅ Circuit reset");
+        //    }))
+        //.AddTransientHttpErrorPolicy(polly =>
+        //polly.WaitAndRetryAsync(3, retryCount =>
+        //TimeSpan.FromSeconds(Math.Pow(2, retryCount)) +
+        //TimeSpan.FromMilliseconds(Random.Shared.Next(0, 100)),
+        //onRetry: (outcome, timespan, retrycount, context) =>
+        //{
+        //    Console.WriteLine($"🔄 Retry {retrycount} after {timespan}");
+        //}))
+        //.ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+        //{
+        //    EnableMultipleHttp2Connections = true,
 
-            PooledConnectionLifetime = TimeSpan.FromMinutes(10),
-            PooledConnectionIdleTimeout = TimeSpan.FromMinutes(8),
+        //    PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+        //    PooledConnectionIdleTimeout = TimeSpan.FromMinutes(8),
 
-            MaxConnectionsPerServer = 10,
-            UseCookies = false,
-            AllowAutoRedirect = false
-        }).AddPolicyHandler(Policy.TimeoutAsync<HttpResponseMessage>(
-            TimeSpan.FromSeconds(10),
-            Polly.Timeout.TimeoutStrategy.Pessimistic,
-            onTimeoutAsync: (outcome, timespan, task) =>
-            {
-                Console.WriteLine($"⏰ Timeout after {timespan}");
-                return Task.CompletedTask;
-            }));
-        // Резервный клиент для RSS
-        services.AddHttpClient("RssClientReserve", client =>
-        {
-            client.Timeout = TimeSpan.FromSeconds(60);
-            client.DefaultRequestHeaders.Accept.ParseAdd("application/xml, text/xml, */*");
-            client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-            client.DefaultRequestHeaders.AcceptEncoding.ParseAdd("gzip, deflate, br");
+        //    MaxConnectionsPerServer = 10,
+        //    UseCookies = false,
+        //    AllowAutoRedirect = false
+        //}).AddPolicyHandler(Policy.TimeoutAsync<HttpResponseMessage>(
+        //    TimeSpan.FromSeconds(10),
+        //    Polly.Timeout.TimeoutStrategy.Pessimistic,
+        //    onTimeoutAsync: (outcome, timespan, task) =>
+        //    {
+        //        Console.WriteLine($"⏰ Timeout after {timespan}");
+        //        return Task.CompletedTask;
+        //    }));
+        //// Резервный клиент для RSS
+        //services.AddHttpClient("RssClientReserve", client =>
+        //{
+        //    client.Timeout = TimeSpan.FromSeconds(60);
+        //    client.DefaultRequestHeaders.Accept.ParseAdd("application/xml, text/xml, */*");
+        //    client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7");
+        //    client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+        //    client.DefaultRequestHeaders.AcceptEncoding.ParseAdd("gzip, deflate, br");
 
-            client.DefaultRequestVersion = HttpVersion.Version20;
-            client.DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher;
-        }).AddTransientHttpErrorPolicy(policy =>
-          policy.CircuitBreakerAsync(
-            handledEventsAllowedBeforeBreaking: 5,
-            durationOfBreak: TimeSpan.FromSeconds(30)
-            ))
-        .AddTransientHttpErrorPolicy(polly =>
-            polly.WaitAndRetryAsync(3, retryCount =>
-            TimeSpan.FromSeconds(Math.Pow(2, retryCount))))
-        .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
-        {
-            EnableMultipleHttp2Connections = true,
+        //    client.DefaultRequestVersion = HttpVersion.Version20;
+        //    client.DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher;
+        //}).AddTransientHttpErrorPolicy(policy =>
+        //  policy.CircuitBreakerAsync(
+        //    handledEventsAllowedBeforeBreaking: 5,
+        //    durationOfBreak: TimeSpan.FromSeconds(30)
+        //    ))
+        //.AddTransientHttpErrorPolicy(polly =>
+        //    polly.WaitAndRetryAsync(3, retryCount =>
+        //    TimeSpan.FromSeconds(Math.Pow(2, retryCount))))
+        //.ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+        //{
+        //    EnableMultipleHttp2Connections = true,
 
-            PooledConnectionLifetime = TimeSpan.FromMinutes(10),
-            PooledConnectionIdleTimeout = TimeSpan.FromMinutes(8),
+        //    PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+        //    PooledConnectionIdleTimeout = TimeSpan.FromMinutes(8),
 
-            MaxConnectionsPerServer = 10,
-            UseCookies = false,
-            AllowAutoRedirect = false
-        });
+        //    MaxConnectionsPerServer = 10,
+        //    UseCookies = false,
+        //    AllowAutoRedirect = false
+        //});
+
+        ClientOptions options = new ClientOptions();
+
+        options.serviceDescriptors(options.servicesFromApi, services);
+        options.serviceDescriptors(options.servicesFromRss, services);
+        options.serviceDescriptors(options.servicesFromRssReserve, services);
 
         services.AddHttpClient("Http2StreamClient", clientstream =>
         {
@@ -477,9 +488,9 @@ public class Program
 
             var result = await _apiRequests.CachingApiRequests(url, city);
 
-            if (result != null)
+            if (result != null && result.Count > 0)
             {
-                return new List<ModelTestApi> { result };
+                return result;
             }
 
             return new List<ModelTestApi>();
