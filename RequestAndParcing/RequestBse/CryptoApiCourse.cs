@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
+using Polly;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -18,6 +19,9 @@ namespace TelegramNewsBot.RequestAndParcing.RequestBse
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly ParsedClass _parsedClass;
         private readonly Microsoft.Extensions.Logging.ILogger<ParsedClass> _loggerparsed;
+        private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
+        private readonly ExceptionClass _exceptionclass;
+        private readonly Httpoptions _httpoptions;
 
         public CryptoApiCourse(Microsoft.Extensions.Logging.ILogger<CryptoApiCourse> logger, Microsoft.Extensions.Caching.Memory.IMemoryCache memoryCache, IHttpClientFactory httpClientFactory, ParsedClass parsedClass, Microsoft.Extensions.Logging.ILogger<ParsedClass> loggerparsed)
         {
@@ -28,49 +32,103 @@ namespace TelegramNewsBot.RequestAndParcing.RequestBse
             _httpClientFactory = httpClientFactory;
         }
 
-        public async Task<ModelCrypto> CacheRequest(string url, CancellationToken cancellation = default)
+        public async Task<List<ModelCrypto>> CacheRequest(string url, CancellationToken cancellation = default)
         {
             string key_cache = $"key_cache_{url}";
-
-            if (_memoryCache.TryGetValue(key_cache, out object? cachedobject))
+            List<ModelCrypto> oldcache = null;
+            if (_memoryCache.TryGetValue(key_cache, out List<ModelCrypto>? cached) && cached != null)
             {
-                if (cachedobject is ModelCrypto cachde)
-                {
-                    _logger.LogInformation($"📦 Данные из кэша для {cachde}");
-                    return cachde;
-                }
+                oldcache = cached;
+                _logger.LogInformation($"📦 Данные из кэша для {key_cache}");
+                return cached;
             }
+            await _semaphore.WaitAsync(cancellation);
             try
             {
+                if (_memoryCache.TryGetValue(key_cache, out List<ModelCrypto>? cached2) && cached2 != null)
+                {
+                    return cached2;
+                }
+
+                var fallback = Policy<List<ModelCrypto>>
+                    .Handle<Exception>()
+                    .OrResult(r => r == null || r.Count > 0)
+                    .FallbackAsync(fallbackAction: async (outcome, context, cancellation) =>
+                    {
+                        var exception = outcome.Exception;
+                        var isEmpty = outcome.Result?.Count == 0;
+
+                        if (exception != null)
+                        {
+                            _logger.LogWarning($"⚠️ Fallback by empty result");
+                        }
+                        if (isEmpty)
+                        {
+                            _logger.LogWarning($"⚠️ Fallback by empty result");
+                        }
+                        if (oldcache != null)
+                        {
+                            _logger.LogInformation("✅ Fallback: возвращаю старые данные из кэша");
+                            return oldcache;
+                        }
+
+                        var stalekey = $"stalekey:{key_cache}";
+
+                        if (_memoryCache.TryGetValue(stalekey, out List<ModelCrypto> cached))
+                        {
+                            _logger.LogInformation($"✅ Returning stale copy for {cached}");
+                            return cached;
+                        }
+                        _logger.LogWarning("⚠️ Fallback: кэш пуст, возвращаю пустой список");
+                        return new List<ModelCrypto>();
+                    },
+                    onFallbackAsync: async (outcome, ctx) =>
+                    {
+                        _logger.LogError($"🆘 Fallback сработал: {outcome.Exception?.Message}");
+                        await Task.CompletedTask;
+                    });
                 _logger.LogInformation("Начинаю запрос данных");
 
-                var result = await Request(url, cancellation).ConfigureAwait(false);
+                var fallbackresult = await  fallback.ExecuteAsync(async () =>
+                {
+                    var result = await Request(url, cancellation).ConfigureAwait(false);
 
-                var options = new MemoryCacheEntryOptions()
-                    .SetAbsoluteExpiration(TimeSpan.FromMinutes(10))
-                    .SetSlidingExpiration(TimeSpan.FromMinutes(8));
+                    if (result != null || result.Count > 0)
+                    {
+                        var options = new MemoryCacheEntryOptions()
+                            .SetAbsoluteExpiration(TimeSpan.FromMinutes(10))
+                            .SetSlidingExpiration(TimeSpan.FromMinutes(8));
 
-                _memoryCache.Set(key_cache, result, options);
-                return result;
+                        _memoryCache.Set(key_cache, result, options);
+
+                        var StaleOptions = new MemoryCacheEntryOptions()
+                         .SetAbsoluteExpiration(TimeSpan.FromMinutes(25));
+
+                        _memoryCache.Set($"stale: {key_cache}", result, StaleOptions);
+                        _logger.LogInformation($"✅ Cached fresh data for {key_cache}");
+                    }
+                    return result ?? new List<ModelCrypto>();
+                });
+                return fallbackresult;
             }
             catch (Exception ex)
             {
                 _logger.LogError("Возникло исключение" + ex.Message + ex.StackTrace);
-                return new ModelCrypto();
+                return new List<ModelCrypto>();
+            }
+            finally
+            {
+                _semaphore.Release();
             }
         }
 
-        public async Task<ModelCrypto> Request(string url, CancellationToken cancellation = default)
+        public async Task<List<ModelCrypto>> Request(string url, CancellationToken cancellation = default)
         {
             try
             {
                 var client = _httpClientFactory.CreateClient("CryptoApyCourse");
 
-                var options = new HttpRequestMessage(HttpMethod.Get, url)
-                {
-                    Version = HttpVersion.Version20,
-                    VersionPolicy = HttpVersionPolicy.RequestVersionOrHigher
-                };
+                var options = _httpoptions.OptionsComleted(_httpoptions.Options, url);
 
                 _logger.LogInformation("Начинаю запрос");
                 var timer = System.Diagnostics.Stopwatch.StartNew();
@@ -96,41 +154,41 @@ namespace TelegramNewsBot.RequestAndParcing.RequestBse
                         catch (Exception ex)
                         {
                             _logger.LogError("Возникло исключение" + ex.Message + ex.StackTrace);
-                            return new ModelCrypto();
+                            return new List<ModelCrypto>();
                         }
                     }
                     else
                     {
                         _logger.LogError("Объект не нейден");
-                        return new ModelCrypto();
+                        return new List<ModelCrypto>();
                     }
                 }
                 else
                 {
                     _logger.LogError("Запрос завершился статус кодом:"  + recpon.StatusCode);
-                    return new ModelCrypto();
+                    return new List<ModelCrypto>();
                 }
             }
             catch (TaskCanceledException ex) when (!cancellation.IsCancellationRequested)
             {
-                _logger.LogError("Операция отменена" + ex.Message + ex.StackTrace);
-                return new ModelCrypto();
+                _exceptionclass.Send1(_exceptionclass.Exceptions, ex);
+                return new List<ModelCrypto>();
             }
             catch (TaskCanceledException ex) when (cancellation.IsCancellationRequested)
             {
-                _logger.LogError("Операция отменена пользователем" + ex.Message + ex.StackTrace);
-                return new ModelCrypto();
+                _exceptionclass.Send1(_exceptionclass.Exceptions, ex);
+                return new List<ModelCrypto>();
             }
             catch (HttpRequestException ex)
             {
-                _logger.LogError("Возникло исключение при выполнении запроса" + ex.Message, ex.StackTrace);
-                return new ModelCrypto();
+                _exceptionclass.Send1(_exceptionclass.Exceptions, ex);
+                return new List<ModelCrypto>();
             }
             catch (Exception ex)
             {
-                _logger.LogError("Возникло исключение" + ex.Message + ex.StackTrace);
-                return new ModelCrypto();
-            }
+                _exceptionclass.Send1(_exceptionclass.Exceptions, ex);
+                return new List<ModelCrypto>();
+            }   
         }
     }
 }

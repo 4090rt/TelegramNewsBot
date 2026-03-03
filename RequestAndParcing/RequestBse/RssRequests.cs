@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
+using Polly;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -20,6 +21,7 @@ namespace TelegramNewsBot.RequestAndParcing.RequestBse
         private readonly ILogger<ParsedClass> _loggerparce;
         private readonly Microsoft.Extensions.Caching.Memory.IMemoryCache _memoryCache;
         private readonly ParsedClass _parsedClass;
+        private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1,1);
         public RssRequests(IHttpClientFactory factory,ILogger<RssRequests> logger, Microsoft.Extensions.Caching.Memory.IMemoryCache memoryCache, ILogger<ParsedClass> loggerparce)
         {
             _factory = factory;
@@ -29,40 +31,99 @@ namespace TelegramNewsBot.RequestAndParcing.RequestBse
 
         }
 
-        public async Task<List<ModelClassRss>> CacheRequest(string url)
+        public async Task<List<ModelClassRss>> CacheRequest(string url, CancellationToken cancellation = default)
         {
             string keycache = $"key_request_news{url}";
-
-            if (_memoryCache.TryGetValue(keycache, out object? CACHELISTobject))
+            List<ModelClassRss>? oldcache = null;
+            if (_memoryCache.TryGetValue(keycache, out object? cacheobject) &&
+               cacheobject is List<ModelClassRss> cached)
             {
-                if (CACHELISTobject is List<ModelClassRss> cacheList)
-                {
+                    oldcache = cached;
                     _logger.LogInformation($"📦 Данные из кэша для {keycache}");
-                    return cacheList;
-                }
+                    return cached;
             }
+            await _semaphore.WaitAsync(cancellation);
             try
             {
+                if (_memoryCache.TryGetValue(keycache, out object? cachedobject))
+                {
+                    if (cachedobject is List<ModelClassRss> cached2)
+                    {
+                        return cached2;
+                    }
+                }
+
+                var fallback = Policy<List<ModelClassRss>>
+                    .Handle<Exception>()
+                    .OrResult(r => r == null || r.Count == 0)
+                    .FallbackAsync(
+                    fallbackAction: async (outcome, context, cancellation) =>
+                    {
+                        var exception = outcome.Exception;
+                        var isempty = outcome.Result?.Count == 0;
+
+                        if (exception != null)
+                        {
+                            _logger.LogWarning($"⚠️ Fallback by exception: {exception.Message}");
+                        }
+                        else if (isempty)
+                        {
+                            _logger.LogWarning($"⚠️ Fallback by empty result");
+                        }
+                        if (oldcache != null)
+                        {
+                            _logger.LogInformation("✅ Fallback: возвращаю старые данные из кэша");
+                            return oldcache;
+                        }
+                        var stalekey = $"stalekey:{keycache}";
+
+                        if (_memoryCache.TryGetValue(stalekey, out object? cacheobject) && cacheobject is List<ModelClassRss> cached)
+                        {
+                            _logger.LogInformation($"✅ Returning stale copy for {cached}");
+                            return cached;
+                        }
+                        _logger.LogWarning("⚠️ Fallback: кэш пуст, возвращаю пустой список");
+                        return new List<ModelClassRss>();
+                    },
+                     onFallbackAsync: async (outcome, ctx) =>
+                     {
+                         _logger.LogError($"🆘 Fallback сработал: {outcome.Exception?.Message}");
+                         await Task.CompletedTask;
+                     });
+
                 _logger.LogInformation("Делаю Запрос новостей");
-                var result = await Request(url);
+                var resultfallback = await fallback.ExecuteAsync(async () =>
+                {
+                    var result = await Request(url, cancellation).ConfigureAwait(false);
 
-                var options = new MemoryCacheEntryOptions()
-                    .SetAbsoluteExpiration(TimeSpan.FromMinutes(5))
-                    .SetSlidingExpiration(TimeSpan.FromMinutes(3));
+                    if (result != null && result.Count > 0)
+                    {
+                        var options = new MemoryCacheEntryOptions()
+                            .SetAbsoluteExpiration(TimeSpan.FromMinutes(5))
+                            .SetSlidingExpiration(TimeSpan.FromMinutes(3));
 
-                _memoryCache.Set(keycache, result, options);
+                        _memoryCache.Set(keycache, result, options);
 
-                return result;
+                        var StaleOptions = new MemoryCacheEntryOptions()
+                        .SetAbsoluteExpiration(TimeSpan.FromMinutes(25));
+
+                        _memoryCache.Set($"stale: {keycache}", result, StaleOptions);
+                        _logger.LogInformation($"✅ Cached fresh data for {keycache}");
+                    }
+                    return result ?? new List<ModelClassRss>();
+                });
+                return resultfallback;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Ошибка при получении Информации");
                 throw;
             }
+            finally
+            {
+                _semaphore.Release();
+            }
         }
-
-
-
         public async Task<List<ModelClassRss>> Request(string URL, CancellationToken cancellation = default)
         {
             try

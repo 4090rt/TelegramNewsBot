@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -11,11 +12,14 @@ namespace TelegramNewsBot.RequestAndParcing.RequestBse
     {
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly Microsoft.Extensions.Logging.ILogger _logger;
+        private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
+        private readonly Microsoft.Extensions.Caching.Memory.IMemoryCache _memoryCache;
 
-        public RequestWeather(IHttpClientFactory httpClientFactory, Microsoft.Extensions.Logging.ILogger logger)
+        public RequestWeather(Microsoft.Extensions.Caching.Memory.IMemoryCache memoryCache, IHttpClientFactory httpClientFactory, Microsoft.Extensions.Logging.ILogger logger)
         {
             _httpClientFactory = httpClientFactory;
             _logger = logger;
+            _memoryCache = memoryCache;
         }
 
         public async Task<Stream> WetherApiRequets(string city,  string url, CancellationToken cancellation = default)
