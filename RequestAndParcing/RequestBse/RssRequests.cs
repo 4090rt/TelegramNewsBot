@@ -21,13 +21,15 @@ namespace TelegramNewsBot.RequestAndParcing.RequestBse
         private readonly ILogger<ParsedClass> _loggerparce;
         private readonly Microsoft.Extensions.Caching.Memory.IMemoryCache _memoryCache;
         private readonly ParsedClass _parsedClass;
+        private readonly FallBackPolitic _fallbackPolitic;
         private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1,1);
-        public RssRequests(IHttpClientFactory factory,ILogger<RssRequests> logger, Microsoft.Extensions.Caching.Memory.IMemoryCache memoryCache, ILogger<ParsedClass> loggerparce)
+        public RssRequests(IHttpClientFactory factory,ILogger<RssRequests> logger, Microsoft.Extensions.Caching.Memory.IMemoryCache memoryCache, ILogger<ParsedClass> loggerparce, FallBackPolitic fallbackPolitic)
         {
             _factory = factory;
             _logger = logger;
             _memoryCache = memoryCache;
             _loggerparce = loggerparce;
+            _fallbackPolitic = fallbackPolitic;
 
         }
 
@@ -53,43 +55,11 @@ namespace TelegramNewsBot.RequestAndParcing.RequestBse
                     }
                 }
 
-                var fallback = Policy<List<ModelClassRss>>
-                    .Handle<Exception>()
-                    .OrResult(r => r == null || r.Count == 0)
-                    .FallbackAsync(
-                    fallbackAction: async (outcome, context, cancellation) =>
-                    {
-                        var exception = outcome.Exception;
-                        var isempty = outcome.Result?.Count == 0;
-
-                        if (exception != null)
-                        {
-                            _logger.LogWarning($"⚠️ Fallback by exception: {exception.Message}");
-                        }
-                        else if (isempty)
-                        {
-                            _logger.LogWarning($"⚠️ Fallback by empty result");
-                        }
-                        if (oldcache != null)
-                        {
-                            _logger.LogInformation("✅ Fallback: возвращаю старые данные из кэша");
-                            return oldcache;
-                        }
-                        var stalekey = $"stalekey:{keycache}";
-
-                        if (_memoryCache.TryGetValue(stalekey, out object? cacheobject) && cacheobject is List<ModelClassRss> cached)
-                        {
-                            _logger.LogInformation($"✅ Returning stale copy for {cached}");
-                            return cached;
-                        }
-                        _logger.LogWarning("⚠️ Fallback: кэш пуст, возвращаю пустой список");
-                        return new List<ModelClassRss>();
-                    },
-                     onFallbackAsync: async (outcome, ctx) =>
-                     {
-                         _logger.LogError($"🆘 Fallback сработал: {outcome.Exception?.Message}");
-                         await Task.CompletedTask;
-                     });
+                var fallback = _fallbackPolitic.fallbackPolicyS(
+                    _fallbackPolitic.Proverka,
+                    oldcache,
+                    keycache,
+                    cancellation);
 
                 _logger.LogInformation("Делаю Запрос новостей");
                 var resultfallback = await fallback.ExecuteAsync(async () =>
