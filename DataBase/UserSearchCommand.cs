@@ -35,7 +35,7 @@ namespace TelegramNewsBot.DataBase
                     Task.Run(async () => await Inichializate()).Wait();
                     conection = open.Pollopen();
                     string sqlitecommand = "SELECT  Command, User, Date  FROM COM WHERE User = @U";
-
+                        
                     using (var commandsql = new SQLiteCommand(sqlitecommand, conection))
                     {
                         commandsql.Parameters.AddWithValue("@U", username);

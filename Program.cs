@@ -17,10 +17,12 @@ using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bots.Configs;
 using TelegramNewsBot;
+using TelegramNewsBot.DataBase;
 using TelegramNewsBot.RequestAndParcing.ModelBse;
 using TelegramNewsBot.RequestAndParcing.ParsedBase;
 using TelegramNewsBot.RequestAndParcing.RequestBse;
 using TelegramNewsBot.TelegramBotSet.CommandHendler;
+using TelegramNewsBot.TelegramBotSet.Commands;
 using TelegramNewsBot.TelegramBotSet.InkineButtons;
 using TelegramNewsBot.TelegramBotSet.ModelsTg;
 using TelegramNewsBot.TelegramBotSet.TelegramService;
@@ -147,6 +149,33 @@ public class Program
 
                 // Регистрируем Program
                 services.AddScoped<Program>();
+
+                // Регистрируем классы базы данных
+                services.AddSingleton<PollOpen>();
+                services.AddSingleton<DbPathClass>();
+                services.AddScoped<LINQ>();
+                services.AddScoped<DateLast>();
+                services.AddScoped<DbSaveCommands>();
+                services.AddScoped<LastCommands>();
+                services.AddScoped<UserSearch>();
+                services.AddScoped<UserSearchCommand>();
+
+                // Регистрируем классы TelegramBotSet
+                services.AddScoped<EventErrorPolly>();
+
+                // Регистрируем классы RequestAndParcing
+                services.AddScoped<ExceptionClass>();
+                services.AddScoped<RequestWeather>();
+                services.AddSingleton<Httpoptions>();
+
+                // Регистрируем LogCommand (зависит от ExceptionClass)
+                services.AddScoped<LogCommand>();
+
+                // Регистрируем ClientOptions
+                services.AddSingleton<ClientOptions>();
+
+                // Регистрируем HttpClientFactory для RequestWeather
+                services.AddHttpClient();
 
                 Console.WriteLine("✅ Сервисы сконфигурированы");
             })

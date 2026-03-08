@@ -20,14 +20,16 @@ namespace TelegramNewsBot.RequestAndParcing.RequestBse
         private readonly ParsedClass _parsedClass;
         private readonly Microsoft.Extensions.Logging.ILogger<ParsedClass> _loggerparsed;
         private readonly SemaphoreSlim _semaphoreslin = new SemaphoreSlim(1,1);
+        private readonly FallBackPolitic _fallbackPolitic;
 
-        public ValuteCourseRequest(Microsoft.Extensions.Logging.ILogger<ValuteCourseRequest> logger, Microsoft.Extensions.Caching.Memory.IMemoryCache memoryCache, IHttpClientFactory httpClientFactory, ParsedClass parsedClass, Microsoft.Extensions.Logging.ILogger<ParsedClass> loggerparsed)
+        public ValuteCourseRequest(Microsoft.Extensions.Logging.ILogger<ValuteCourseRequest> logger, Microsoft.Extensions.Caching.Memory.IMemoryCache memoryCache, IHttpClientFactory httpClientFactory, ParsedClass parsedClass, Microsoft.Extensions.Logging.ILogger<ParsedClass> loggerparsed, FallBackPolitic fallbackPolitic)
         {
             _logger = logger;
             _loggerparsed = loggerparsed;
             _memoryCache = memoryCache;
             _parsedClass = parsedClass;
             _httpClientFactory = httpClientFactory;
+            _fallbackPolitic = fallbackPolitic;
         }
 
         public async Task<ModelValute> CachingRequest(string url, CancellationToken cancellation = default)
@@ -47,41 +49,12 @@ namespace TelegramNewsBot.RequestAndParcing.RequestBse
                 {
                     return cached2;
                 }
-                _logger.LogInformation("Запрашвиваю данные о валютах");
 
-                var fallback = Policy<ModelValute>
-                    .Handle<Exception>()
-                    .OrResult(r => r == null)
-                    .FallbackAsync(
-                    fallbackAction: async (outcome, context, cancellation) =>
-                    {
-                        var exception = outcome.Exception;
-
-                        if (exception != null)
-                        {
-                            _logger.LogWarning($"⚠️ Fallback by exception: {exception.Message}");
-                        }
-                        if (oldcache != null)
-                        {
-                            _logger.LogInformation("✅ Fallback: возвращаю старые данные из кэша");
-                            return oldcache;
-                        }
-                        string stalekey = $"stalekey:{cache_memory}";
-
-                        if (_memoryCache.TryGetValue(stalekey, out ModelValute? cached))
-                        {
-                            _logger.LogInformation($"✅ Returning stale copy for {cached}");
-                            return cached;
-                        }
-                        _logger.LogWarning("⚠️ Fallback: кэш пуст, возвращаю null");
-                        return null;
-                    },
-                    onFallbackAsync: async (outcome, ctx) =>
-                    {
-                        _logger.LogError($"🆘 Fallback сработал: {outcome.Exception?.Message}");
-                        await Task.CompletedTask;
-                    });
-
+                var fallback = _fallbackPolitic.fallbackPolicyS(
+                    _fallbackPolitic.Proverka,
+                    oldcache,
+                    cache_memory,
+                    cancellation);
 
                 _logger.LogInformation("Делаю Запрос валют");
                 var resultfallback = await fallback.ExecuteAsync(async () =>

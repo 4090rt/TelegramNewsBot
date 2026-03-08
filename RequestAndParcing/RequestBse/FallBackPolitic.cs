@@ -34,7 +34,7 @@ namespace TelegramNewsBot.RequestAndParcing.RequestBse
             }
         }
 
-        public AsyncFallbackPolicy<T> fallbackPolicyS<T>(Fallback<T> fallbackDelegate,T oldcache, string memorycache_key, CancellationToken cancellation = default)
+        public AsyncFallbackPolicy<T> fallbackPolicyS<T>(Fallback<T> fallbackDelegate, CancellationToken cancellation = default)
         {
             var fallback = Policy<T>
                 .Handle<Exception>()
@@ -53,11 +53,16 @@ namespace TelegramNewsBot.RequestAndParcing.RequestBse
                         {
                             _logger.LogWarning($"⚠️ Fallback by empty result");
                         }
+
+                        var memorycache_key = context.Get<string>("memorycache_key");
+                        var oldcache = context.Get<T>("oldcache");
+
                         if (oldcache != null)
                         {
                             _logger.LogInformation("✅ Fallback: возвращаю старые данные из кэша");
                             return oldcache;
                         }
+
                         return await fallbackDelegate.Invoke(oldcache, memorycache_key, cancellation);
                     },
                     onFallbackAsync: async (outcome, ctx) =>
@@ -65,7 +70,7 @@ namespace TelegramNewsBot.RequestAndParcing.RequestBse
                         _logger.LogError($"🆘 Fallback сработал: {outcome.Exception?.Message}");
                         await Task.CompletedTask;
                     });
-            
+
             return fallback;
         }
 

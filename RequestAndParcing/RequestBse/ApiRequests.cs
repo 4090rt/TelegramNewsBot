@@ -20,21 +20,25 @@ namespace TelegramNewsBot.RequestAndParcing.RequestBse
         public readonly Dictionary<long, UserDataModel> _userSession;
         private readonly ParsedClass _parseClass;
         private readonly IMemoryCache _iMemoryCache;
+        private readonly FallBackPolitic _fallbackPolitic;
         private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
-        public ApiRequests(IHttpClientFactory httpClientFactory, ILogger<ApiRequests> logger, ParsedClass parseClass, IMemoryCache iMemoryCache)
-        { 
+        private readonly Httpoptions _httpOptions;
+        private readonly ExceptionClass _exceptionClass;
+        public ApiRequests(IHttpClientFactory httpClientFactory, ILogger<ApiRequests> logger, ParsedClass parseClass, IMemoryCache iMemoryCache, FallBackPolitic fallbackPolitic)
+        {
             _httpClientFactory = httpClientFactory;
             _logger = logger;
             _userSession = new Dictionary<long, UserDataModel>();
             _parseClass = parseClass;
             _iMemoryCache = iMemoryCache;
+            _fallbackPolitic = fallbackPolitic;
         }
 
         public async Task<List<ModelTestApi>> CachingApiRequests(string url, string city, CancellationToken cancellation = default)
         {
             string key_cache = $"caching_key_{url}_{city}";
-            List<ModelTestApi> oldcache = null;
-            if (_iMemoryCache.TryGetValue(key_cache, out List<ModelTestApi> caching))
+            List<ModelTestApi>? oldcache = null;
+            if (_iMemoryCache.TryGetValue(key_cache, out List<ModelTestApi>? caching))
             {
                 oldcache = caching;
                 _logger.LogInformation($"📦 Данные из кэша для {key_cache}");
@@ -43,58 +47,24 @@ namespace TelegramNewsBot.RequestAndParcing.RequestBse
             await _semaphore.WaitAsync(cancellation);
             try
             {
-                if (_iMemoryCache.TryGetValue(key_cache, out List<ModelTestApi> cached2))
+                if (_iMemoryCache.TryGetValue(key_cache, out List<ModelTestApi>? cached2))
                 {
                     return cached2;
                 }
 
-                var fallback = Policy<List<ModelTestApi>>
-                    .Handle<Exception>()
-                    .OrResult(r => r == null || r.Count > 0)
-                    .FallbackAsync(
-                    fallbackAction: async (outcome, context, cancellation) =>
-                    {
-                        var exception = outcome.Exception;
-                        var isEmpty = outcome.Result?.Count == 0;
-
-                        if (exception != null)
-                        {
-                            _logger.LogWarning($"⚠️ Fallback by exception: {exception.Message}");
-                        }
-                        if (isEmpty)
-                        {
-                            _logger.LogWarning($"⚠️ Fallback by empty result");
-                        }
-                        if (oldcache != null)
-                        {
-                            _logger.LogInformation("✅ Fallback: возвращаю старые данные из кэша");
-                            return oldcache;
-                        }
-
-                        var stalekey = $"stalekey:{key_cache}";
-                        if (_iMemoryCache.TryGetValue(stalekey, out List<ModelTestApi> cached))
-                        {
-                            _logger.LogInformation($"✅ Returning stale copy for {cached}");
-                            return cached;
-                        }
-                        _logger.LogWarning("⚠️ Fallback: кэш пуст, возвращаю пустой список");
-                        return new List<ModelTestApi>();
-                    },
-                    onFallbackAsync: async (outcome, ctx) =>
-                    {
-                        _logger.LogError($"🆘 Fallback сработал: {outcome.Exception?.Message}");
-                        await Task.CompletedTask;
-                    });
+                var fallback = _fallbackPolitic.fallbackPolicyS(
+                    _fallbackPolitic.Proverka,
+                    oldcache,
+                    key_cache,
+                    cancellation);
 
                 _logger.LogInformation("Делаю запрос данных");
                 var fallbackresult = await fallback.ExecuteAsync(async () =>
                 {
-                    var result = await ApiRequesttss(url, city);
+                    var result = await ApiRequesttss(url, city, cancellation).ConfigureAwait(false);
 
-                    if (result != null || result.Count > 0)
+                    if (result != null && result.Count > 0)
                     {
-                        _logger.LogInformation("Данные получены");
-
                         var options = new MemoryCacheEntryOptions()
                             .SetAbsoluteExpiration(TimeSpan.FromMinutes(10))
                             .SetSlidingExpiration(TimeSpan.FromMinutes(8));
@@ -117,7 +87,7 @@ namespace TelegramNewsBot.RequestAndParcing.RequestBse
                 return new List<ModelTestApi>();
             }
             finally
-            { 
+            {
                 _semaphore.Release();
             }
         }
@@ -132,11 +102,7 @@ namespace TelegramNewsBot.RequestAndParcing.RequestBse
             {
                 var client = _httpClientFactory.CreateClient("ApiClient");
 
-                var options = new HttpRequestMessage(HttpMethod.Get, url)
-                {
-                    Version = HttpVersion.Version20,
-                    VersionPolicy = HttpVersionPolicy.RequestVersionOrHigher
-                };
+                var options = _httpOptions.OptionsComleted(_httpOptions.Options, url);
 
                 _logger.LogInformation("Начинаю запрос");
                 var timer = System.Diagnostics.Stopwatch.StartNew();
@@ -161,7 +127,7 @@ namespace TelegramNewsBot.RequestAndParcing.RequestBse
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogError("Не удалось прочитать ответ" + ex.Message);
+                            _exceptionClass.Send1(_exceptionClass.Exceptions, ex);
                             return new List<ModelTestApi>();
                         }
                     }
@@ -184,17 +150,17 @@ namespace TelegramNewsBot.RequestAndParcing.RequestBse
             }
             catch (TaskCanceledException ex) when (!cancellation.IsCancellationRequested)
             {
-                _logger.LogError("Операция была отменена" + ex.Message);
+                _exceptionClass.Send1(_exceptionClass.Exceptions, ex);
                 return new List<ModelTestApi>();
             }
             catch (HttpRequestException ex)
             {
-                _logger.LogError("При попытке запроса возникло исключение" + ex.Message);
+                _exceptionClass.Send1(_exceptionClass.Exceptions, ex);
                 return new List<ModelTestApi>();
             }
             catch (Exception ex)
             {
-                _logger.LogError("Возникло исключение" + ex.Message);
+                _exceptionClass.Send1(_exceptionClass.Exceptions, ex);
                 return new List<ModelTestApi>();
             }
         }

@@ -63,7 +63,7 @@ namespace TelegramNewsBot.RequestAndParcing.ParsedBase
             }
         }
 
-        public async Task<ModelCrypto> PaedesCrypto(Stream json)
+        public async Task<List<ModelCrypto>> PaedesCrypto(Stream json)
         {
             try
             {
@@ -75,20 +75,14 @@ namespace TelegramNewsBot.RequestAndParcing.ParsedBase
                     PropertyNameCaseInsensitive = true,
                 };
 
-                var deserialize = JsonSerializer.Deserialize<ModelCrypto>(readertoend);
+                var deserialize = JsonSerializer.Deserialize<List<ModelCrypto>>(readertoend);
 
-                if (deserialize != null)
-                {
-                    Console.WriteLine($"BitCoin: {deserialize.bitcoin.rub}");
-                    Console.WriteLine($"Ethereum: {deserialize.ethereum.rub}");
-                    Console.WriteLine($"Tether: {deserialize.tether.rub}");
-                }
                 return deserialize;
             }
             catch (Exception ex)
             {
                 _logger.LogInformation("Возникло исключение" + ex.Message + ex.StackTrace);
-                return new ModelCrypto();
+                return new List<ModelCrypto>();
             }
         }
 
@@ -104,22 +98,18 @@ namespace TelegramNewsBot.RequestAndParcing.ParsedBase
                     PropertyNameCaseInsensitive = true
                 };
 
-                var result = JsonSerializer.Deserialize<ModelValute>(readtoend);
+                var result = JsonSerializer.Deserialize<ModelValute>(readtoend, options);
 
-                if (result != null)
-                {
-                    Console.WriteLine($"BitCoin: {result.BaseCode}");
-                }
                 return result;
             }
             catch (Exception ex)
             {
                 _logger.LogInformation("Возникло исключение" + ex.Message + ex.StackTrace);
-                return new ModelValute();
+                return null;
             }
         }
 
-        public async Task<ModelTestApi>/*<T>*/ ParsedApi/*<T>*/(Stream json) /*where T : new()*/
+        public async Task<List<ModelTestApi>>/*<T>*/ ParsedApi/*<T>*/(Stream json) /*where T : new()*/
         {
             //try
             //{
@@ -183,23 +173,14 @@ namespace TelegramNewsBot.RequestAndParcing.ParsedBase
                     PropertyNameCaseInsensitive = true
                 };
 
-                var result = JsonSerializer.Deserialize<ModelTestApi>(jsonText, options);
-
-                // Проверяем что заполнилось
-                if (result != null)
-                {
-                    Console.WriteLine($"Timezone: {result.Timezone}");
-                    Console.WriteLine($"TimezoneOffset: {result.TimezoneOffset}");
-                    Console.WriteLine($"Time24: {result.Time24}");
-                    Console.WriteLine($"Date: {result.Date}");
-                }
+                var result = JsonSerializer.Deserialize<List<ModelTestApi>>(jsonText, options);
 
                 return result;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Ошибка парсинга timezone API");
-                return new ModelTestApi();
+                return new List<ModelTestApi>();
             }
 
         }

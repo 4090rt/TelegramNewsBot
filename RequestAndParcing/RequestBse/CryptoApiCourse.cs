@@ -22,20 +22,22 @@ namespace TelegramNewsBot.RequestAndParcing.RequestBse
         private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
         private readonly ExceptionClass _exceptionclass;
         private readonly Httpoptions _httpoptions;
+        private readonly FallBackPolitic _fallbackPolitic;
 
-        public CryptoApiCourse(Microsoft.Extensions.Logging.ILogger<CryptoApiCourse> logger, Microsoft.Extensions.Caching.Memory.IMemoryCache memoryCache, IHttpClientFactory httpClientFactory, ParsedClass parsedClass, Microsoft.Extensions.Logging.ILogger<ParsedClass> loggerparsed)
+        public CryptoApiCourse(Microsoft.Extensions.Logging.ILogger<CryptoApiCourse> logger, Microsoft.Extensions.Caching.Memory.IMemoryCache memoryCache, IHttpClientFactory httpClientFactory, ParsedClass parsedClass, Microsoft.Extensions.Logging.ILogger<ParsedClass> loggerparsed, FallBackPolitic fallbackPolitic)
         {
             _logger = logger;
             _loggerparsed = loggerparsed;
             _memoryCache = memoryCache;
             _parsedClass = parsedClass;
             _httpClientFactory = httpClientFactory;
+            _fallbackPolitic = fallbackPolitic;
         }
 
         public async Task<List<ModelCrypto>> CacheRequest(string url, CancellationToken cancellation = default)
         {
             string key_cache = $"key_cache_{url}";
-            List<ModelCrypto> oldcache = null;
+            List<ModelCrypto>? oldcache = null;
             if (_memoryCache.TryGetValue(key_cache, out List<ModelCrypto>? cached) && cached != null)
             {
                 oldcache = cached;
@@ -50,50 +52,19 @@ namespace TelegramNewsBot.RequestAndParcing.RequestBse
                     return cached2;
                 }
 
-                var fallback = Policy<List<ModelCrypto>>
-                    .Handle<Exception>()
-                    .OrResult(r => r == null || r.Count > 0)
-                    .FallbackAsync(fallbackAction: async (outcome, context, cancellation) =>
-                    {
-                        var exception = outcome.Exception;
-                        var isEmpty = outcome.Result?.Count == 0;
+                var fallback = _fallbackPolitic.fallbackPolicyS(
+                    _fallbackPolitic.Proverka,
+                    oldcache,
+                    key_cache,
+                    cancellation);
 
-                        if (exception != null)
-                        {
-                            _logger.LogWarning($"⚠️ Fallback by empty result");
-                        }
-                        if (isEmpty)
-                        {
-                            _logger.LogWarning($"⚠️ Fallback by empty result");
-                        }
-                        if (oldcache != null)
-                        {
-                            _logger.LogInformation("✅ Fallback: возвращаю старые данные из кэша");
-                            return oldcache;
-                        }
-
-                        var stalekey = $"stalekey:{key_cache}";
-
-                        if (_memoryCache.TryGetValue(stalekey, out List<ModelCrypto> cached))
-                        {
-                            _logger.LogInformation($"✅ Returning stale copy for {cached}");
-                            return cached;
-                        }
-                        _logger.LogWarning("⚠️ Fallback: кэш пуст, возвращаю пустой список");
-                        return new List<ModelCrypto>();
-                    },
-                    onFallbackAsync: async (outcome, ctx) =>
-                    {
-                        _logger.LogError($"🆘 Fallback сработал: {outcome.Exception?.Message}");
-                        await Task.CompletedTask;
-                    });
                 _logger.LogInformation("Начинаю запрос данных");
 
-                var fallbackresult = await  fallback.ExecuteAsync(async () =>
+                var fallbackresult = await fallback.ExecuteAsync(async () =>
                 {
                     var result = await Request(url, cancellation).ConfigureAwait(false);
 
-                    if (result != null || result.Count > 0)
+                    if (result != null && result.Count > 0)
                     {
                         var options = new MemoryCacheEntryOptions()
                             .SetAbsoluteExpiration(TimeSpan.FromMinutes(10))
