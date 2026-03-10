@@ -24,7 +24,7 @@ namespace TelegramNewsBot.TelegramBotSet.TelegramService
         private readonly ILogger<TelegramService> _logger;
         private readonly BotConfigModel _config;
         private readonly CommandHendler.CommandHendler _commandHandlerr;
-
+        private readonly EventErrorPolly _eventErrorPolly;
         //присваиваем значения
         public TelegramService(ITelegramBotClient botClient,IOptions<BotConfigModel> config, ILogger<TelegramService> logger, CommandHendler.CommandHendler commandHandler)
         {
@@ -121,20 +121,7 @@ namespace TelegramNewsBot.TelegramBotSet.TelegramService
         //Метод обработки ошибок с тг апи
         public Task HandlerPollyErrorAsync(ITelegramBotClient botClient, Exception exception, CancellationToken cancellation)
         {
-            string errormessage;
-            // если исключение ApiRequestException то выводим информацию о нем в противном случае просто выводим исключение
-            switch (exception)
-            {
-                case ApiRequestException apiRequestException:
-                    errormessage = $"Telegram API Error: {apiRequestException.ErrorCode} - {apiRequestException.Message}";
-                    break;
-                default:
-                    errormessage = exception.ToString();
-                    break;
-
-
-            }
-            _logger.LogError(errormessage);
+            var error = _eventErrorPolly.ErrorPolly += (sender, args) => _eventErrorPolly.Errors(exception);
             return Task.CompletedTask;
         }
 

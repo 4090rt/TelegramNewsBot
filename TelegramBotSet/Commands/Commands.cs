@@ -33,10 +33,16 @@ namespace TelegramNewsBot.TelegramBotSet.Commands
         private readonly Program _program;
         private readonly CryptoApiCourse _modelCrypto;
         private readonly ValuteCourseRequest _valute;
-        
+        private readonly RequestFromStream _requestFromStream;
+        private readonly LogCommand _logcommand;
+        private readonly DelegateFromBD _delegateFromBD;
+        private readonly LINQ _linq;
+        private readonly ExceptionClass _exceptionClass;
+
         public Commands(ITelegramBotClient botClient, BotConfigModel config, Microsoft.Extensions.Logging.ILogger logger, IServiceProvider serviceProvider, RssRequestsReserve rssRequestsReserve,
         ApiRequests apiRequests,
-        ParsedClass parsedClass, RssRequests rssRequests, Program program, CryptoApiCourse modelcrypto, ValuteCourseRequest valute)
+        ParsedClass parsedClass, RssRequests rssRequests, Program program, CryptoApiCourse modelcrypto, ValuteCourseRequest valute, RequestFromStream requestFromStream, LogCommand logcommand,
+        DelegateFromBD delegateFromBD, LINQ linq, ExceptionClass exceptionClass)
         {
             _botClient = botClient;
             _botConfig = config;
@@ -47,10 +53,14 @@ namespace TelegramNewsBot.TelegramBotSet.Commands
             _rssRequestsReserve = rssRequestsReserve;
             _apiRequests = apiRequests;
             _parsedClass = parsedClass;
-            _logger = logger;
             _program = program;
             _modelCrypto = modelcrypto;
             _valute = valute;
+            _requestFromStream = requestFromStream;
+            _logcommand = logcommand;
+            _delegateFromBD = delegateFromBD;
+            _linq = linq;
+            _exceptionClass = exceptionClass;
         }
 
         public async Task FabricCommand(long chatId, string command, CancellationToken cancellationToken, string username)
@@ -62,8 +72,7 @@ namespace TelegramNewsBot.TelegramBotSet.Commands
                     string loguser3 = username;
                     DateTime date3 = DateTime.UtcNow;
                     _logger.LogInformation(log3);
-                    DbSaveCommands save3 = new DbSaveCommands(_logger);
-                    await save3.Addcommands(log3, loguser3, date3.ToString());
+                    _logcommand.LogginginBd += (sender,args) => _logcommand.SaveIndBd(log3, loguser3, date3).Wait();
 
                     await MainCommand(chatId, cancellationToken);
                     break;
@@ -73,9 +82,7 @@ namespace TelegramNewsBot.TelegramBotSet.Commands
                     string loguser = username;
                     DateTime date = DateTime.UtcNow;
                     _logger.LogInformation(log);
-                    DbSaveCommands save = new DbSaveCommands(_logger);
-                    await save.Addcommands(log, loguser, date.ToString());
-
+                    _logcommand.LogginginBd += (sender, args) => _logcommand.SaveIndBd(log, loguser, date).Wait();
 
                     InlineButtons inl = new InlineButtons(_botClient);
                     await inl.InlineButtonss(chatId, cancellationToken);
@@ -88,8 +95,7 @@ namespace TelegramNewsBot.TelegramBotSet.Commands
                     string loguser2 = username;
                     DateTime date2 = DateTime.UtcNow;
                     _logger.LogInformation(log2);
-                    DbSaveCommands save2 = new DbSaveCommands(_logger);
-                    await save2.Addcommands(log2,loguser2,date2.ToString());
+                    _logcommand.LogginginBd += (sender, args) => _logcommand.SaveIndBd(log2, loguser2, date2).Wait();
 
                     await WeatherCommand(chatId, cancellationToken);
                     break;
@@ -117,10 +123,43 @@ namespace TelegramNewsBot.TelegramBotSet.Commands
                     string loguser1 = username;
                     DateTime date1 = DateTime.UtcNow;
                     _logger.LogInformation(log1);
-                    DbSaveCommands save1 = new DbSaveCommands(_logger);
-                    await save1.Addcommands(log1, loguser1, date1.ToString());
+                    _logcommand.LogginginBd += (sender, args) => _logcommand.SaveIndBd(log1, loguser1, date1).Wait();
 
                     await Cource(chatId, cancellationToken);
+                    break;
+                case "/StartMonitor":
+                    string log5 = "Вызов команды /StartMonitor";
+                    string loguser5 = username;
+                    DateTime date5 = DateTime.UtcNow;
+                    _logger.LogInformation(log5);
+                    _logcommand.LogginginBd += (sender, args) => _logcommand.SaveIndBd(log5, loguser5, date5).Wait();
+
+                    await StartMonitor(chatId);
+                    break;
+                case "/StopMonitor":
+                    string log6 = "Вызов команды /StopMonitor";
+                    string loguser6 = username;
+                    DateTime date6 = DateTime.UtcNow;
+                    _logger.LogInformation(log6);
+                    _logcommand.LogginginBd += (sender, args) => _logcommand.SaveIndBd(log6, loguser6, date6).Wait();
+
+                    await StopMonitor(chatId);
+                    break;
+                case "/Statistic":
+                    string log7 = "Вызов команды /StopMonitor";
+                    string loguser7 = username;
+                    DateTime date7 = DateTime.UtcNow;
+                    _logger.LogInformation(log7);
+                    _logcommand.LogginginBd += (sender, args) => _logcommand.SaveIndBd(log7, loguser7, date7).Wait();
+
+                    LinqFilterCommands linqFilterCommands = new LinqFilterCommands(_logger, _delegateFromBD, _linq, _exceptionClass);
+                    await linqFilterCommands.Command1();
+                    await linqFilterCommands.CommandFroCommands("/Start");
+                    await linqFilterCommands.CommandFro5Popular();
+                    await linqFilterCommands.CommandFromWeekLast();
+                    await linqFilterCommands.CommandFromLast10();
+                    await linqFilterCommands.CommandfROMLastAndFirst();
+                    await linqFilterCommands.CommandsFromUser(loguser7);
                     break;
             }
         }
@@ -203,32 +242,40 @@ namespace TelegramNewsBot.TelegramBotSet.Commands
                 foreach (string currency in baseCurrencies)
                 {
                     string URL1 = $"https://v6.exchangerate-api.com/v6/{Apikey}/latest/{currency}";
-                    var result  = await _valute.CachingRequest(URL1, cancellation);
+                    var result = await _valute.CachingRequest(URL1, cancellation);
                     if (result != null)
                     {
-                        results[currency] = result; 
+                        results[currency] = result;
                     }
                 }
-                ModelCrypto result1 = await _modelCrypto.CacheRequest(url, cancellation);
-                if (result1 != null && results != null)
+                var resultCryptoList = await _modelCrypto.CacheRequest(url, cancellation);
+                if (resultCryptoList != null && resultCryptoList.Count > 0 && results != null)
                 {
+                    var result1 = resultCryptoList[0];
+                    var usdRate = results["USD"].GetRate("RUB");
+                    var eurRate = results["EUR"].GetRate("RUB");
+
+                    var btcRate = result1.GetRate("bitcoin");
+                    var ethRate = result1.GetRate("ethereum");
+                    var usdtRate = result1.GetRate("tether");
+
                     string message = $@"💰 *КРИПТОВАЛЮТЫ К РУБЛЮ* 💰
 
-                    ₿ Bitcoin  ➜ {result1.bitcoin.rub:N0} ₽
-                  Ξ Ethereum ➜ {result1.ethereum.rub:N0} ₽
-                    ₮ Tether   ➜ {result1.tether.rub:N2} ₽
+                    ₿ Bitcoin  ➜ {btcRate:N0} ₽
+                  Ξ Ethereum ➜ {ethRate:N0} ₽
+                    ₮ Tether   ➜ {usdtRate:N2} ₽
 
                     💱 *КУРСЫ ВАЛЮТ* 💱
 
-                    🇺🇸 USD  ➜ {results["USD"].ConversionRates["RUB"]:F2} ₽
-                    🇪🇺 EUR  ➜ {results["EUR"].ConversionRates["RUB"]:F2} ₽
+                    🇺🇸 USD  ➜ {usdRate:F2} ₽
+                    🇪🇺 EUR  ➜ {eurRate:F2} ₽
 
                     📊 {DateTime.Now:dd.MM.yyyy HH:mm}";
                     await _botClient.SendTextMessageAsync
                       (
                           chatId: chatid,
-                          text: $"💰 *КРИПТОВАЛЮТЫ К РУБЛЮ* 💰\n\n   \u20bf Bitcoin  ➜ {result1.bitcoin.rub:N0} ₽\n   Ξ Ethereum ➜ {result1.ethereum.rub:N0} ₽\n   ₮ Tether   ➜ {result1.tether.rub:N2} ₽\n \n " +
-                          $"💱 *КУРСЫ ВАЛЮТ* 💱:\n   🇺🇸 USD  ➜ {results["USD"].ConversionRates["RUB"]:F2} ₽\n   🇪🇺 EUR  ➜ {results["EUR"].ConversionRates["RUB"]:F2} ₽\n \n" +
+                          text: $"💰 *КРИПТОВАЛЮТЫ К РУБЛЮ* 💰\n\n   \u20bf Bitcoin  ➜ {btcRate:N0} ₽\n   Ξ Ethereum ➜ {ethRate:N0} ₽\n   ₮ Tether   ➜ {usdtRate:N2} ₽\n \n " +
+                          $"💱 *КУРСЫ ВАЛЮТ* 💱:\n   🇺🇸 USD  ➜ {usdRate:F2} ₽\n   🇪🇺 EUR  ➜ {eurRate:F2} ₽\n \n" +
                           $"Обновлено: 📊 {DateTime.Now:dd.MM.yyyy HH:mm}",
                           cancellationToken: cancellation
                       );
@@ -249,5 +296,57 @@ namespace TelegramNewsBot.TelegramBotSet.Commands
                 return;
             }
         }
+
+        public static class Monitoring
+        {
+            public static Dictionary<long, CancellationTokenSource> _tokens = new();
+        }
+
+        public async Task StartMonitor(long chatid)
+        {
+            var cts = new CancellationTokenSource();
+            Monitoring._tokens[chatid] = cts;
+
+
+            _logger.LogInformation("Сервис мониторинга запущен!");
+
+            await _botClient.SendTextMessageAsync(chatid, "✅ Мониторинг запущен!");
+
+            _ = Task.Run(async () =>
+            {
+                await _requestFromStream.Request(
+                    "https://tass.com/rss/v2.xml",
+                    async (result) => 
+                    {
+                        foreach (var news in result)
+                        {
+                            if (cts.Token.IsCancellationRequested)
+                            {
+                                _logger.LogInformation("Отмена отправки новостей");
+                                return;
+                            }
+                            await _botClient.SendTextMessageAsync(chatid,
+                                $"📰 *{news.Title}*\n🔗 {news.Link}\n⏰ {news.PublisDate}\n\n");
+                        }
+
+                        _logger.LogInformation($"Отправлено {result.Count} новостей");
+                    },
+                    cts.Token
+                );
+            });
+        }
+
+        public async Task StopMonitor(long chatid)
+        {
+
+            if (Monitoring._tokens.TryGetValue(chatid, out var cts))
+            {
+                cts.Cancel(); 
+                Monitoring._tokens.Remove(chatid); 
+                _logger.LogInformation("Сервис мониторинга остановлен!");
+                await _botClient.SendTextMessageAsync(chatid, "⏹️ Мониторинг остановлен");
+            }
+        }
+
     }
 }

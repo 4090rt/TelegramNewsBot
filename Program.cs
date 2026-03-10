@@ -158,6 +158,8 @@ public class Program
                 services.AddScoped<DbSaveCommands>();
                 services.AddScoped<LastCommands>();
                 services.AddScoped<UserSearch>();
+                services.AddScoped<DelegateFromBD>();
+                services.AddScoped<ExceptionClass>();
                 services.AddScoped<UserSearchCommand>();
 
                 // Регистрируем классы TelegramBotSet
