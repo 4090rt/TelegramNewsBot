@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Microsoft.Extensions.Logging;
+using System;
 using System.Collections.Generic;
 using System.Data.SQLite;
 using System.Linq;
@@ -14,72 +15,100 @@ namespace TelegramNewsBot.DataBase
         private readonly object _lock = new object();
         private readonly string _dbpath;
         private readonly int _maxCouhnt = 10;
-
-        public PollOpen()
+        private readonly ILogger _logger;
+        public PollOpen(ILogger logger)
         { 
             DbPathClass dbpath = new DbPathClass();
             _dbpath = dbpath.dbpath(); 
+            _logger = logger;
         }
 
         public SQLiteConnection CreateConnection()
         {
-            var connect = new SQLiteConnection($"Data Source={_dbpath}");
-            connect.Open();
-            return connect;
+            try
+            {
+                var connect = new SQLiteConnection($"Data Source={_dbpath}");
+                connect.Open();
+                return connect;
+            }
+            catch (SQLiteException ex)
+            {
+                _logger.LogError("Возникло исключени" + ex.Message + ex.StackTrace);
+                throw;
+            }
         }
 
         public SQLiteConnection Pollopen()
         {
-            lock (_lock)
+            try
             {
-                SQLiteConnection conn;
-
-                if (_available.Count > 1)
+                lock (_lock)
                 {
-                    conn = _available.Pop();
+                    SQLiteConnection conn;
 
-                    if (conn.State != System.Data.ConnectionState.Open)
+                    if (_available.Count > 1)
                     {
-                        conn.Dispose();
+                        conn = _available.Pop();
+                        if (conn == null)
+                        {
+                            conn = CreateConnection();
+                        }
+                        if (conn.State != System.Data.ConnectionState.Open)
+                        {
+                            conn.Dispose();
+                            conn = CreateConnection();
+                        }
+                    }
+                    else if (_available.Count + _inUse.Count < _maxCouhnt)
+                    {
                         conn = CreateConnection();
                     }
-                }
-                else if (_available.Count + _inUse.Count < _maxCouhnt)
-                {
-                    conn = CreateConnection();
-                }
-                else
-                {
-                    throw new Exception("Пул занят!");
-                }
+                    else
+                    {
+                        throw new Exception("Пул занят!");
+                    }
 
-                _inUse.Add(conn);
-                return conn;
+                    _inUse.Add(conn);
+                    return conn;
+                }
+            }
+            catch (SQLiteException ex)
+            {
+                _logger.LogError("Возникло исключени" + ex.Message + ex.StackTrace);
+                throw;
             }
         }
 
         public void ClosePool(SQLiteConnection conn)
         {
             if (conn == null) return;
-            lock (_lock)
+            try
             {
-                if (_inUse.Contains(conn))
+                lock (_lock)
                 {
-                    _inUse.Remove(conn);
-
-                    if (conn.State == System.Data.ConnectionState.Open)
+                    if (_inUse.Contains(conn))
                     {
-                        _available.Push(conn);
+                        _inUse.Remove(conn);
+
+                        if (conn.State == System.Data.ConnectionState.Open)
+                        {
+                            _available.Push(conn);
+                        }
+                        else
+                        {
+                            conn.Dispose();
+                        }
                     }
                     else
                     {
-                        conn.Dispose();
+                        throw new Exception("Соединение не найдено");
                     }
                 }
-                else
-                {
-                    throw new Exception("Соединение не найдено");
-                }
+            }
+            catch (SQLiteException ex)
+            {
+                _logger.LogError("Возникло исключение " + ex.Message + ex.StackTrace);
+                throw;
             }
         }
     }
